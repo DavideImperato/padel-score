@@ -22,6 +22,7 @@ export interface PadelMatchSnapshot {
   tieBreakPointsA: number;
   tieBreakPointsB: number;
   tieBreakInitialRotationIndex?: number;
+  deuceCount?: number; // Quante volte si è tornati in parità nel game corrente (per vantaggi prima del punto d'oro)
   matchWinner?: Team;
   lastEventMessage: string;
 }
@@ -35,8 +36,11 @@ export interface MatchSettings {
   player4Name: string;
   firstServerPlayerId: number; // 1, 2, 3 or 4
   isGoldenPoint: boolean;
+  advantagesBeforeGoldenPoint: number; // 0 = subito punto d'oro, 1 = 1 vantaggio poi punto d'oro, 2 = 2 vantaggi poi punto d'oro
   bestOfSets: number; // 1, 3, or 5
   ttsSpeed: number; // 0.8 to 1.3
   ttsVolume: number; // 0 to 1
-  isMuted: boolean;
+  isMuted?: boolean;
+  isVoiceMuted: boolean;
+  isSfxMuted: boolean;
 }

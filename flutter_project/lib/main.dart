@@ -8,19 +8,55 @@ import 'services/tts_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+
+  // 1. Forza orientamento Landscape
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  try { await WakelockPlus.enable(); } catch (_) {}
+
+  // 2. Mantiene lo schermo sempre acceso per tutta la durata del match a bordo campo
+  try {
+    await WakelockPlus.enable();
+  } catch (_) {}
+
+  // 3. Inizializza TTS offline in lingua italiana
   final ttsService = TtsService();
   await ttsService.init();
 
   runApp(
     MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => PadelScoreProvider(ttsService: ttsService))],
-      child: const MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: MatchSetupScreen(),
-      ),
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => PadelScoreProvider(ttsService: ttsService),
+        ),
+      ],
+      child: const PadelScoreBotApp(),
     ),
   );
+}
+
+class PadelScoreBotApp extends StatelessWidget {
+  const PadelScoreBotApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Padel ScoreBot',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF070B14),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFCCFF00),   // Giallo Fluorescente Padel
+          secondary: Color(0xFF00E5FF), // Ciano Elettrico
+          surface: Color(0xFF0F172A),
+        ),
+        fontFamily: 'Roboto',
+      ),
+      // Avvia l'app dalla Schermata Iniziale di Setup Match
+      home: const MatchSetupScreen(),
+    );
+  }
 }

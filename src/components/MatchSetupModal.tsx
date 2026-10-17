@@ -47,10 +47,13 @@ export const MatchSetupModal: React.FC<MatchSetupModalProps> = ({
       player4Name: player4Display,
       firstServerPlayerId: firstServerId,
       isGoldenPoint,
+      advantagesBeforeGoldenPoint: currentSettings.advantagesBeforeGoldenPoint ?? 0,
       bestOfSets,
       ttsSpeed: currentSettings.ttsSpeed,
       ttsVolume: currentSettings.ttsVolume,
       isMuted: currentSettings.isMuted,
+      isVoiceMuted: currentSettings.isVoiceMuted ?? false,
+      isSfxMuted: currentSettings.isSfxMuted ?? false,
     });
   };
 

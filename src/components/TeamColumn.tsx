@@ -5,7 +5,7 @@ interface TeamColumnProps {
   team: Team;
   teamName: string;
   playersText: string;
-  servingPlayerName: string;
+  servingPlayerName?: string;
   scoreText: string;
   gamesWon: number;
   isServing: boolean;
@@ -14,7 +14,6 @@ interface TeamColumnProps {
   isGoldenPoint: boolean;
   isDeuce: boolean;
   onAddPoint: () => void;
-  onToggleServer: (e: React.MouseEvent) => void;
 }
 
 export const TeamColumn: React.FC<TeamColumnProps> = ({
@@ -29,7 +28,6 @@ export const TeamColumn: React.FC<TeamColumnProps> = ({
   isGoldenPoint,
   isDeuce,
   onAddPoint,
-  onToggleServer,
 }) => {
   const isLime = accentColor === 'lime';
   const primaryColorClass = isLime ? 'text-[#CCFF00]' : 'text-[#00E5FF]';
@@ -41,17 +39,64 @@ export const TeamColumn: React.FC<TeamColumnProps> = ({
   return (
     <div
       onClick={onAddPoint}
-      className={`relative flex-1 flex flex-col justify-between p-4 sm:p-6 lg:p-7 cursor-pointer select-none transition-all duration-150 active:scale-[0.99] group overflow-hidden ${
-        isServing ? 'bg-slate-900/40' : 'bg-slate-950/30'
+      className={`relative flex-1 flex flex-col justify-between p-4 sm:p-6 lg:p-8 cursor-pointer select-none transition-all duration-150 active:scale-[0.99] group overflow-hidden ${
+        isServing ? 'bg-slate-900/50' : 'bg-slate-950/30'
       }`}
       style={{
-        boxShadow: isServing ? `inset 0 0 80px ${isLime ? 'rgba(204, 255, 0, 0.05)' : 'rgba(0, 229, 255, 0.05)'}` : 'none',
+        boxShadow: isServing
+          ? `inset 0 0 100px ${isLime ? 'rgba(204, 255, 0, 0.08)' : 'rgba(0, 229, 255, 0.08)'}`
+          : 'none',
       }}
     >
-      <div className={`absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity ${isLime ? 'bg-[#CCFF00]' : 'bg-[#00E5FF]'}`} />
+      {/* WATERMARK SEMI-TRASPARENTE PALLINA DA PADEL/TENNIS SULLO SFONDO (SOLO SQUADRA AL SERVIZIO) */}
+      {isServing && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0"
+        >
+          <svg
+            className={`w-72 h-72 sm:w-96 sm:h-96 md:w-[420px] md:h-[420px] transition-all duration-500 transform scale-105 ${
+              isLime ? 'text-[#CCFF00]' : 'text-[#00E5FF]'
+            } opacity-10 sm:opacity-[0.14]`}
+            viewBox="0 0 200 200"
+            fill="none"
+          >
+            {/* Outer Tennis Ball Circle */}
+            <circle
+              cx="100"
+              cy="100"
+              r="88"
+              fill="currentColor"
+              fillOpacity="0.06"
+              stroke="currentColor"
+              strokeWidth="5"
+            />
+            {/* Classic Padel / Tennis Seam Curves */}
+            <path
+              d="M38 46 C 75 65, 88 135, 38 154"
+              stroke="currentColor"
+              strokeWidth="6"
+              strokeLinecap="round"
+            />
+            <path
+              d="M162 46 C 125 65, 112 135, 162 154"
+              stroke="currentColor"
+              strokeWidth="6"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      )}
 
-      {/* TOP: Team Name, Players & IN BATTUTA Indicator */}
-      <div className="flex flex-col gap-2 z-10">
+      {/* Hover ambient highlight */}
+      <div
+        className={`absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity pointer-events-none ${
+          isLime ? 'bg-[#CCFF00]' : 'bg-[#00E5FF]'
+        }`}
+      />
+
+      {/* TOP: Team Name & Players info (No bulky "Al Servizio" buttons/badges) */}
+      <div className="flex flex-col gap-1 z-10">
         <div className="flex items-center justify-between gap-3">
           <div className="truncate">
             <h2
@@ -64,36 +109,25 @@ export const TeamColumn: React.FC<TeamColumnProps> = ({
               {playersText}
             </p>
           </div>
-
-          {/* Toggle Service Quick Button */}
-          <button
-            onClick={onToggleServer}
-            title="Clicca per passare il servizio al prossimo battitore"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all border cursor-pointer ${
-              isServing
-                ? 'bg-[#CCFF00] text-slate-950 border-[#CCFF00] shadow-md shadow-[#CCFF00]/40 font-black'
-                : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
-            }`}
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" fill={isServing ? '#E8FF59' : '#475569'} stroke={isServing ? '#88AA00' : '#1E293B'} strokeWidth="1.5" />
-              <path d="M4.5 7.5C8 8.5 10 11.5 10 16.5" stroke={isServing ? '#FFFFFF' : '#334155'} strokeWidth="1.5" strokeLinecap="round" />
-              <path d="M19.5 16.5C16 15.5 14 12.5 14 7.5" stroke={isServing ? '#FFFFFF' : '#334155'} strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <span className="text-[11px] font-black uppercase">
-              {isServing ? 'Servizio' : 'Batti'}
-            </span>
-          </button>
         </div>
 
-        {/* VISUALIZZAZIONE ULTRA CHIARA: IN BATTUTA: [NOME GIOCATORE] */}
-        {isServing ? (
-          <div className="self-start inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#CCFF00] text-slate-950 font-black text-xs sm:text-sm tracking-wider uppercase shadow-lg shadow-[#CCFF00]/50 animate-pulse border border-[#CCFF00]">
-            <span className="w-2 h-2 rounded-full bg-slate-950" />
-            <span>IN BATTUTA: <strong>{servingPlayerName.toUpperCase()}</strong></span>
+        {/* Indicazione discreta ed elegante del giocatore al servizio se la squadra batte */}
+        {isServing && servingPlayerName ? (
+          <div className="flex items-center gap-2 mt-1">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isLime ? 'bg-[#CCFF00]' : 'bg-[#00E5FF]'
+              } animate-ping`}
+            />
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+              Battitore:{' '}
+              <span className={`font-black ${primaryColorClass}`}>
+                {servingPlayerName}
+              </span>
+            </span>
           </div>
         ) : (
-          <div className="h-6" /> // spacer to balance columns
+          <div className="h-4" />
         )}
       </div>
 
@@ -126,7 +160,7 @@ export const TeamColumn: React.FC<TeamColumnProps> = ({
         </div>
 
         <span className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-2 group-hover:text-slate-400 transition-colors">
-          Tocca per assegnare punto
+          Tocca per punto
         </span>
       </div>
 

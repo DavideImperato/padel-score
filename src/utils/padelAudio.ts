@@ -1,127 +1,198 @@
+// Service dedicato esclusivamente alla Voce Arbitrale Italiana (TTS)
+// Elimina gli effetti sonori (SFX) per evitare qualsiasi conflitto, silenziamento o blocco audio su mobile/desktop.
+// Esecuzione sincrona garantita per preservare i permessi di user gesture (senza setTimeout).
+
 class PadelAudioService {
-  private isMuted: boolean = false;
+  private isVoiceMuted: boolean = false;
   private volume: number = 1.0;
-  private speed: number = 1.05;
-  private audioCtx: AudioContext | null = null;
-  private preferredVoice: SpeechSynthesisVoice | null = null;
+  private speed: number = 0.95; // Cadenza arbitrale naturale
+  private cachedItalianVoice: SpeechSynthesisVoice | null = null;
+  private isAudioUnlocked: boolean = false;
 
   constructor() {
-    this.initVoice();
+    this.initVoices();
+    this.setupGlobalUnlock();
+    this.startWatchdog();
   }
 
-  private initVoice() {
+  // Precarica le voci di sistema
+  private initVoices() {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
-    const findItalianVoice = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const itVoice = voices.find(v => v.lang.startsWith('it')) || null;
-      this.preferredVoice = itVoice;
+    const findVoice = () => {
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        if (!voices || voices.length === 0) return;
+
+        // Cerca voci con lingua italiana (it-IT, it_IT, it)
+        const itVoices = voices.filter(v => {
+          const l = (v.lang || '').replace('_', '-').toLowerCase();
+          return l.startsWith('it');
+        });
+
+        if (itVoices.length > 0) {
+          // Preferisci voce offline/locale o di sistema default
+          const localVoice = itVoices.find(v => v.localService === true);
+          const defaultVoice = itVoices.find(v => v.default);
+          this.cachedItalianVoice = localVoice || defaultVoice || itVoices[0];
+        }
+      } catch {
+        // Fallback silente
+      }
     };
 
-    findItalianVoice();
+    findVoice();
     if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = findItalianVoice;
+      window.speechSynthesis.onvoiceschanged = findVoice;
     }
   }
 
-  public setMuted(muted: boolean) {
-    this.isMuted = muted;
+  // Sblocco immediato del motore vocale ad ogni tocco dell'utente
+  public unlockAudio() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      const synth = window.speechSynthesis;
+      if (synth.paused) {
+        synth.resume();
+      }
+      this.isAudioUnlocked = true;
+    } catch {}
+  }
+
+  private setupGlobalUnlock() {
+    if (typeof window === 'undefined') return;
+    const unlock = () => {
+      this.unlockAudio();
+    };
+    window.addEventListener('click', unlock, { passive: true });
+    window.addEventListener('touchstart', unlock, { passive: true });
+    window.addEventListener('pointerdown', unlock, { passive: true });
+  }
+
+  // Watchdog per evitare che Chrome su Android/Desktop sospenda SpeechSynthesis
+  private startWatchdog() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    setInterval(() => {
+      try {
+        const synth = window.speechSynthesis;
+        if (synth && synth.speaking && synth.paused) {
+          synth.resume();
+        }
+      } catch {}
+    }, 3000);
+  }
+
+  public setVoiceMuted(muted: boolean) {
+    this.isVoiceMuted = muted;
     if (muted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
     }
   }
 
+  public getVoiceMuted(): boolean {
+    return this.isVoiceMuted;
+  }
+
+  // Compatibilità retroattiva (SFX disattivati per policy utente)
+  public setSfxMuted(_muted: boolean) {}
+  public getSfxMuted(): boolean {
+    return true;
+  }
+  public setMuted(muted: boolean) {
+    this.setVoiceMuted(muted);
+  }
   public getMuted(): boolean {
-    return this.isMuted;
+    return this.isVoiceMuted;
   }
 
   public setSpeed(speed: number) {
-    this.speed = Math.max(0.7, Math.min(1.5, speed));
+    this.speed = Math.max(0.7, Math.min(1.4, speed));
   }
 
   public setVolume(volume: number) {
     this.volume = Math.max(0, Math.min(1.0, volume));
   }
 
-  // Play a quick beep/sound effect on court
-  public playCourtBeep(type: 'point' | 'game' | 'undo' | 'click' = 'point') {
-    if (this.isMuted) return;
-    try {
-      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!this.audioCtx) {
-        this.audioCtx = new AudioCtxClass();
-      }
-      if (this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume();
-      }
+  // Effetti sonori dismessi completamente per garantire priorità assoluta alla voce arbitrale
+  public playCourtBeep(_type?: string) {}
+  public playApplause(_durationSec?: number) {}
+  public playCheer() {}
+  public playSetWinSound() {}
+  public playMatchWinSound() {}
+  public playSuspenseSound() {}
 
-      const osc = this.audioCtx.createOscillator();
-      const gain = this.audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(this.audioCtx.destination);
-
-      const now = this.audioCtx.currentTime;
-
-      if (type === 'point') {
-        osc.frequency.setValueAtTime(587.33, now); // D5
-        osc.frequency.exponentialRampToValueAtTime(880, now + 0.12); // A5
-        gain.gain.setValueAtTime(0.25 * this.volume, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-        osc.start(now);
-        osc.stop(now + 0.15);
-      } else if (type === 'game') {
-        // Double triumphant beep
-        osc.frequency.setValueAtTime(523.25, now); // C5
-        osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
-        osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
-        gain.gain.setValueAtTime(0.3 * this.volume, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-        osc.start(now);
-        osc.stop(now + 0.36);
-      } else if (type === 'undo') {
-        osc.frequency.setValueAtTime(440, now);
-        osc.frequency.exponentialRampToValueAtTime(320, now + 0.15);
-        gain.gain.setValueAtTime(0.2 * this.volume, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-        osc.start(now);
-        osc.stop(now + 0.17);
-      } else {
-        osc.frequency.setValueAtTime(600, now);
-        gain.gain.setValueAtTime(0.15 * this.volume, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        osc.start(now);
-        osc.stop(now + 0.06);
-      }
-    } catch {
-      // AudioContext not available or blocked
-    }
-  }
-
-  // Speak Italian announcement
+  // =========================================================================
+  // SINTESI VOCALE ARBITRALE ITALIANA (TTS) DIRETTA E IMMEDIATA
+  // Eseguita DIRETTAMENTE nel call-stack utente (senza setTimeout) per preservare i permessi
+  // =========================================================================
   public speak(text: string) {
-    if (this.isMuted || !text.trim()) return;
-
+    if (this.isVoiceMuted || !text || !text.trim()) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     try {
-      window.speechSynthesis.cancel(); // Stop prior speech
+      const synth = window.speechSynthesis;
 
-      const utterance = new SpeechSynthesisUtterance(text);
+      // Ripristina synth se bloccato in pausa
+      if (synth.paused) {
+        synth.resume();
+      }
+
+      // Interrompi annunci precedenti
+      synth.cancel();
+
+      const cleanText = text.trim();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'it-IT';
       utterance.rate = this.speed;
       utterance.pitch = 1.0;
       utterance.volume = this.volume;
 
-      if (this.preferredVoice) {
-        utterance.voice = this.preferredVoice;
-      } else {
-        const itVoice = window.speechSynthesis.getVoices().find(v => v.lang.startsWith('it'));
-        if (itVoice) utterance.voice = itVoice;
+      // Se disponibile una voce italiana valida offline, usala
+      if (!this.cachedItalianVoice) {
+        this.initVoices();
+      }
+      if (this.cachedItalianVoice) {
+        utterance.voice = this.cachedItalianVoice;
       }
 
-      window.speechSynthesis.speak(utterance);
+      // Mantieni riferimento globale per prevenire garbage collection su Chrome/V8
+      const w = window as any;
+      w.__padelUtterances = w.__padelUtterances || [];
+      w.__padelUtterances.push(utterance);
+
+      const cleanup = () => {
+        if (w.__padelUtterances) {
+          const idx = w.__padelUtterances.indexOf(utterance);
+          if (idx > -1) w.__padelUtterances.splice(idx, 1);
+        }
+      };
+
+      utterance.onend = cleanup;
+      utterance.onerror = (e) => {
+        cleanup();
+        console.warn('SpeechSynthesis error:', e);
+        // Se la voce specifica genera errore, riprova senza forzare la voce
+        if (utterance.voice) {
+          try {
+            const fallback = new SpeechSynthesisUtterance(cleanText);
+            fallback.lang = 'it-IT';
+            fallback.rate = this.speed;
+            fallback.volume = this.volume;
+            synth.speak(fallback);
+          } catch {}
+        }
+      };
+
+      // Riproduzione immediata
+      synth.speak(utterance);
+
+      if (synth.paused) {
+        synth.resume();
+      }
     } catch (e) {
-      console.warn('SpeechSynthesis error:', e);
+      console.error('SpeechSynthesis error in speak():', e);
     }
   }
 }

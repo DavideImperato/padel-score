@@ -2,15 +2,17 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PadelMatchSnapshot, SetScore, MatchSettings, Team } from './types/padel';
 import { padelAudio } from './utils/padelAudio';
 import { BluetoothKeyListener } from './utils/bluetoothListener';
-import { HeaderBar } from './components/HeaderBar';
 import { TeamColumn } from './components/TeamColumn';
-import { SetsBar } from './components/SetsBar';
+import { CentralScoreboardColumn } from './components/CentralScoreboardColumn';
+import { MatchInfoModal } from './components/MatchInfoModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RemoteHelperModal } from './components/RemoteHelperModal';
-import { FlutterCodeViewerModal } from './components/FlutterCodeViewerModal';
 import { MatchSetupScreen } from './components/MatchSetupScreen';
+import { MatchSummaryScreen } from './components/MatchSummaryScreen';
 import { ResetConfirmModal } from './components/ResetConfirmModal';
-import { LandscapeBanner } from './components/LandscapeBanner';
+import { TerminateConfirmModal } from './components/TerminateConfirmModal';
+import { LandscapeEnforcer } from './components/LandscapeEnforcer';
+import { SmartwatchScoreboard } from './components/SmartwatchScoreboard';
 import { Trophy, Sparkles, Hourglass, Play } from 'lucide-react';
 
 const INITIAL_SNAPSHOT: PadelMatchSnapshot = {
@@ -25,6 +27,7 @@ const INITIAL_SNAPSHOT: PadelMatchSnapshot = {
   isTieBreak: false,
   tieBreakPointsA: 0,
   tieBreakPointsB: 0,
+  deuceCount: 0,
   lastEventMessage: 'Inizio Partita',
 };
 
@@ -37,28 +40,43 @@ const DEFAULT_SETTINGS: MatchSettings = {
   player4Name: 'Marco Neri',
   firstServerPlayerId: 1,
   isGoldenPoint: true,
+  advantagesBeforeGoldenPoint: 0,
   bestOfSets: 3,
   ttsSpeed: 0.95, // Cadenza arbitrale naturale
   ttsVolume: 1.0,
   isMuted: false,
+  isVoiceMuted: false,
+  isSfxMuted: false,
 };
 
 export default function App() {
-  // Schermata Principale di default: 'setup' (richiesto esplicitamente per "/")
-  const [currentView, setCurrentView] = useState<'setup' | 'scoreboard'>('setup');
+  // Schermata: 'setup' (default per "/"), 'scoreboard', o 'summary' (riepilogo finale)
+  const [currentView, setCurrentView] = useState<'setup' | 'scoreboard' | 'summary'>('setup');
 
   const [snapshot, setSnapshot] = useState<PadelMatchSnapshot>(INITIAL_SNAPSHOT);
   const [history, setHistory] = useState<PadelMatchSnapshot[]>([]);
   const [settings, setSettings] = useState<MatchSettings>(() => {
     try {
       const saved = localStorage.getItem('padel_settings_v3');
-      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          isVoiceMuted: parsed.isVoiceMuted ?? false,
+          isSfxMuted: parsed.isSfxMuted ?? false,
+          advantagesBeforeGoldenPoint: parsed.advantagesBeforeGoldenPoint ?? 0,
+        };
+      }
     } catch {}
     return DEFAULT_SETTINGS;
   });
 
   // Modal di reset personalizzata (elimina window.confirm bloccato in iframe)
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  // Modal Info Match
+  const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
 
   // Timers: Match duration & Change of Ends (Cambio Campo)
   const [matchSeconds, setMatchSeconds] = useState(0);
@@ -74,8 +92,46 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRemoteHelperOpen, setIsRemoteHelperOpen] = useState(false);
-  const [isFlutterCodeOpen, setIsFlutterCodeOpen] = useState(false);
+  const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
+  const [isSmartwatchMode, setIsSmartwatchMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (window.innerWidth <= 330 && window.innerHeight <= 380) || (window.innerWidth <= 380 && window.innerHeight <= 330);
+  });
   const [lastLogs, setLastLogs] = useState<Array<{ text: string; time: string; type: 'up1' | 'up2' | 'down' | 'other' }>>([]);
+
+  // Auto-detect Smartwatch screen resize
+  useEffect(() => {
+    const handleCheckWatch = () => {
+      const isWatch = (window.innerWidth <= 330 && window.innerHeight <= 380) || (window.innerWidth <= 380 && window.innerHeight <= 330);
+      if (isWatch) {
+        setIsSmartwatchMode(true);
+      }
+    };
+    window.addEventListener('resize', handleCheckWatch);
+    return () => window.removeEventListener('resize', handleCheckWatch);
+  }, []);
+
+  // Sincronizzazione impostazioni audio (Voce e Effetti Sonori)
+  useEffect(() => {
+    padelAudio.setVoiceMuted(settings.isVoiceMuted ?? false);
+    padelAudio.setSfxMuted(settings.isSfxMuted ?? false);
+    padelAudio.setSpeed(settings.ttsSpeed ?? 0.95);
+  }, [settings.isVoiceMuted, settings.isSfxMuted, settings.ttsSpeed]);
+
+  // Sblocca audio e sintesi vocale alla prima interazione dell'utente (policy mobile / Chrome)
+  useEffect(() => {
+    const handleUnlock = () => {
+      padelAudio.unlockAudio();
+    };
+    window.addEventListener('click', handleUnlock, { once: true });
+    window.addEventListener('touchstart', handleUnlock, { once: true });
+    window.addEventListener('keydown', handleUnlock, { once: true });
+    return () => {
+      window.removeEventListener('click', handleUnlock);
+      window.removeEventListener('touchstart', handleUnlock);
+      window.removeEventListener('keydown', handleUnlock);
+    };
+  }, []);
 
   // Match Duration stopwatch
   useEffect(() => {
@@ -218,12 +274,13 @@ export default function App() {
   const addPoint = useCallback((scoringTeam: Team) => {
     if (currentView !== 'scoreboard') return;
 
+    padelAudio.unlockAudio();
+
     setSnapshot(current => {
       if (current.matchWinner) return current;
 
       setHistory(h => [...h, current]);
       triggerHaptic(30);
-      padelAudio.playCourtBeep('point');
 
       // --- TIE-BREAK ---
       if (current.isTieBreak) {
@@ -251,8 +308,9 @@ export default function App() {
         const nextServerPlayer = rotation[nextRot % rotation.length];
         const isTeamA = nextServerPlayer === settings.player1Name || nextServerPlayer === settings.player2Name;
         const nextServerTeam: Team = isTeamA ? 'teamA' : 'teamB';
+        const nextServerTeamName = nextServerTeam === 'teamA' ? settings.teamAName : settings.teamBName;
 
-        padelAudio.speak(`${tbA} a ${tbB}. Serve ${nextServerPlayer}.`);
+        padelAudio.speak(`${tbA} a ${tbB}, servizio ${nextServerTeamName}.`);
 
         return {
           ...current,
@@ -266,44 +324,52 @@ export default function App() {
       // --- STANDARD GAME ---
       let pA = current.rawPointsA;
       let pB = current.rawPointsB;
+      const deuceCount = current.deuceCount ?? 0;
+      const isGoldenPointNow =
+        settings.isGoldenPoint &&
+        pA === 3 &&
+        pB === 3 &&
+        deuceCount >= (settings.advantagesBeforeGoldenPoint ?? 0);
 
       if (scoringTeam === 'teamA') {
         if (pA < 3) {
           pA++;
-          return commitPoint(current, pA, pB, 'teamA');
+          return commitPoint(current, pA, pB, deuceCount);
         } else if (pA === 3 && pB < 3) {
           return winGame(current, 'teamA');
         } else if (pA === 3 && pB === 3) {
-          if (settings.isGoldenPoint) {
+          if (isGoldenPointNow) {
             return winGame(current, 'teamA');
           } else {
             pA = 4;
-            return commitPoint(current, pA, pB, 'teamA');
+            return commitPoint(current, pA, pB, deuceCount);
           }
         } else if (pA === 4 && pB === 3) {
           return winGame(current, 'teamA');
         } else if (pA === 3 && pB === 4) {
           pB = 3;
-          return commitPoint(current, pA, pB, 'teamA');
+          const nextDeuceCount = deuceCount + 1;
+          return commitPoint(current, pA, pB, nextDeuceCount);
         }
       } else {
         if (pB < 3) {
           pB++;
-          return commitPoint(current, pA, pB, 'teamB');
+          return commitPoint(current, pA, pB, deuceCount);
         } else if (pB === 3 && pA < 3) {
           return winGame(current, 'teamB');
         } else if (pA === 3 && pB === 3) {
-          if (settings.isGoldenPoint) {
+          if (isGoldenPointNow) {
             return winGame(current, 'teamB');
           } else {
             pB = 4;
-            return commitPoint(current, pA, pB, 'teamB');
+            return commitPoint(current, pA, pB, deuceCount);
           }
         } else if (pB === 4 && pA === 3) {
           return winGame(current, 'teamB');
         } else if (pB === 3 && pA === 4) {
           pA = 3;
-          return commitPoint(current, pA, pB, 'teamB');
+          const nextDeuceCount = deuceCount + 1;
+          return commitPoint(current, pA, pB, nextDeuceCount);
         }
       }
 
@@ -315,46 +381,52 @@ export default function App() {
     current: PadelMatchSnapshot,
     newPA: number,
     newPB: number,
-    _scorer: Team
+    newDeuceCount: number = 0
   ): PadelMatchSnapshot => {
     const rotation = getRotationOrder();
     const serverPlayer = rotation[current.servingRotationIndex % rotation.length];
+    const servingTeamName = current.servingTeam === 'teamA' ? settings.teamAName : settings.teamBName;
 
+    // ANNUNCIO AUTOMATICO IMMEDIATO (SYNCHRONOUS CALL)
     if (newPA === newPB) {
       if (newPA === 0) {
-        padelAudio.speak('Zero pari.');
+        padelAudio.speak(`0 pari, servizio ${servingTeamName}, batte ${serverPlayer}.`);
       } else if (newPA === 1) {
-        padelAudio.speak('Quindici pari.');
+        padelAudio.speak(`15 pari, servizio ${servingTeamName}, batte ${serverPlayer}.`);
       } else if (newPA === 2) {
-        padelAudio.speak('Trenta pari.');
+        padelAudio.speak(`30 pari, servizio ${servingTeamName}, batte ${serverPlayer}.`);
       } else if (newPA === 3) {
-        if (settings.isGoldenPoint) {
-          padelAudio.speak("Quaranta pari. Punto d'oro.");
+        const isGoldenNow =
+          settings.isGoldenPoint &&
+          newDeuceCount >= (settings.advantagesBeforeGoldenPoint ?? 0);
+
+        if (isGoldenNow) {
+          padelAudio.speak("40 pari, Punto d'Oro!");
         } else {
-          padelAudio.speak('Quaranta pari. Parità.');
+          padelAudio.speak(`40 pari, servizio ${servingTeamName}, batte ${serverPlayer}.`);
         }
       }
     } else if (newPA === 4) {
-      padelAudio.speak(`Vantaggio per la squadra ${settings.teamAName}.`);
+      padelAudio.speak(`Vantaggio ${settings.teamAName}, servizio ${servingTeamName}, batte ${serverPlayer}.`);
     } else if (newPB === 4) {
-      padelAudio.speak(`Vantaggio per la squadra ${settings.teamBName}.`);
+      padelAudio.speak(`Vantaggio ${settings.teamBName}, servizio ${servingTeamName}, batte ${serverPlayer}.`);
     } else {
-      const wordA = getPointWordItalian(newPA);
-      const wordB = getPointWordItalian(newPB);
-      padelAudio.speak(`${wordA} a ${wordB}. Serve ${serverPlayer}.`);
+      const scoreA = getPointLabel(newPA);
+      const scoreB = getPointLabel(newPB);
+      padelAudio.speak(`${scoreA} - ${scoreB}, servizio ${servingTeamName}, batte ${serverPlayer}.`);
     }
 
     return {
       ...current,
       rawPointsA: newPA,
       rawPointsB: newPB,
+      deuceCount: newDeuceCount,
       lastEventMessage: `Punto assegnato`,
     };
   };
 
   const winGame = (current: PadelMatchSnapshot, winner: Team): PadelMatchSnapshot => {
     triggerHaptic([60, 40, 60]);
-    padelAudio.playCourtBeep('game');
 
     let gA = current.currentGamesA;
     let gB = current.currentGamesB;
@@ -374,6 +446,7 @@ export default function App() {
         ...current,
         rawPointsA: 0,
         rawPointsB: 0,
+        deuceCount: 0,
         currentGamesA: 6,
         currentGamesB: 6,
         isTieBreak: true,
@@ -393,12 +466,13 @@ export default function App() {
       return winSet(current, wonA ? 'teamA' : 'teamB', gA, gB, nextRotIndex);
     }
 
-    padelAudio.speak(`Game per la squadra ${winnerName}. ${gA} a ${gB}. Serve ${nextServerPlayer}.`);
+    padelAudio.speak(`Vince Game ${winnerName}.`);
 
     return {
       ...current,
       rawPointsA: 0,
       rawPointsB: 0,
+      deuceCount: 0,
       currentGamesA: gA,
       currentGamesB: gB,
       servingTeam: nextServerTeam,
@@ -442,12 +516,16 @@ export default function App() {
     const nextSetServerTeam: Team = current.initialSetServer === 'teamA' ? 'teamB' : 'teamA';
     const setWinnerName = setWinner === 'teamA' ? settings.teamAName : settings.teamBName;
 
-    const setOrdinal = setNum === 1 ? 'primo' : (setNum === 2 ? 'secondo' : 'terzo');
+    const setOrdinal = setNum === 1 ? 'primo' : (setNum === 2 ? 'secondo' : (setNum === 3 ? 'terzo' : (setNum === 4 ? 'quarto' : 'quinto')));
     if (matchWinner) {
       const matchWinnerName = matchWinner === 'teamA' ? settings.teamAName : settings.teamBName;
-      padelAudio.speak(`Game, set e partita per la squadra ${matchWinnerName}! Risultato finale: ${setsWonA} set a ${setsWonB}.`);
+      padelAudio.speak(`Vince Game, Set e Partita la squadra ${matchWinnerName}!`);
+      setIsTimerRunning(false);
+      setTimeout(() => {
+        setCurrentView('summary');
+      }, 2500);
     } else {
-      padelAudio.speak(`Game e ${setOrdinal} set per la squadra ${setWinnerName}. ${finalGA} game a ${finalGB}.`);
+      padelAudio.speak(`Vince Game e ${setOrdinal} Set la squadra ${setWinnerName}.`);
       startBreakTimer(120);
     }
 
@@ -455,6 +533,7 @@ export default function App() {
       ...current,
       rawPointsA: 0,
       rawPointsB: 0,
+      deuceCount: 0,
       currentGamesA: 0,
       currentGamesB: 0,
       completedSets: updatedSets,
@@ -485,7 +564,7 @@ export default function App() {
   const handleUndo = useCallback(() => {
     if (history.length === 0) return;
     triggerHaptic(20);
-    padelAudio.playCourtBeep('undo');
+    padelAudio.unlockAudio();
     const prevSnapshot = history[history.length - 1];
     setHistory(h => h.slice(0, -1));
     setSnapshot(prevSnapshot);
@@ -499,7 +578,7 @@ export default function App() {
 
   const handleConfirmReset = useCallback(() => {
     triggerHaptic(50);
-    padelAudio.playCourtBeep('undo');
+    padelAudio.unlockAudio();
     setHistory([]);
     setSnapshot(INITIAL_SNAPSHOT);
     setMatchSeconds(0);
@@ -507,6 +586,25 @@ export default function App() {
     const server = getCurrentServingPlayer();
     padelAudio.speak(`Partita resettata. Serve ${server}.`);
   }, [getCurrentServingPlayer]);
+
+  const handleResetAndGoToSetup = useCallback(() => {
+    triggerHaptic(50);
+    padelAudio.unlockAudio();
+    setHistory([]);
+    setSnapshot(INITIAL_SNAPSHOT);
+    setMatchSeconds(0);
+    setIsBreakActive(false);
+    setCurrentView('setup');
+    padelAudio.speak('Partita azzerata. Nuova configurazione match.');
+  }, []);
+
+  const handleTerminateMatch = useCallback(() => {
+    setIsTimerRunning(false);
+    triggerHaptic([80, 40, 80]);
+    padelAudio.unlockAudio();
+    padelAudio.speak('Partita conclusa. Visualizzazione del riepilogo finale.');
+    setCurrentView('summary');
+  }, []);
 
   const handleToggleServingTeam = useCallback(() => {
     setSnapshot(current => {
@@ -567,9 +665,14 @@ export default function App() {
 
   const handleToggleMute = useCallback(() => {
     setSettings(prev => {
-      const nextMuted = !prev.isMuted;
+      const nextMuted = !(prev.isVoiceMuted && prev.isSfxMuted);
       padelAudio.setMuted(nextMuted);
-      return { ...prev, isMuted: nextMuted };
+      return {
+        ...prev,
+        isMuted: nextMuted,
+        isVoiceMuted: nextMuted,
+        isSfxMuted: nextMuted,
+      };
     });
   }, []);
 
@@ -618,7 +721,7 @@ export default function App() {
     // Switch screen to scoreboard!
     setCurrentView('scoreboard');
 
-    // Annuncio arbitrale
+    // Annuncio arbitrale con applauso del pubblico in sottofondo
     const firstServer = (newSettings.firstServerPlayerId === 1)
       ? newSettings.player1Name
       : (newSettings.firstServerPlayerId === 2)
@@ -627,7 +730,12 @@ export default function App() {
       ? newSettings.player3Name
       : newSettings.player4Name;
 
-    padelAudio.speak(`Inizio partita. ${newSettings.teamAName} contro ${newSettings.teamBName}. Serve ${firstServer}.`);
+    const initialTeamName = initialTeam === 'teamA' ? newSettings.teamAName : newSettings.teamBName;
+
+    padelAudio.unlockAudio();
+    padelAudio.speak(
+      `Inizia la sfida tra ${newSettings.teamAName}, con ${newSettings.player1Name} e ${newSettings.player2Name}, e ${newSettings.teamBName}, con ${newSettings.player3Name} e ${newSettings.player4Name}. Servizio per la squadra ${initialTeamName}, batte ${firstServer}. Buon match!`
+    );
   };
 
   // Bluetooth key listener
@@ -668,7 +776,10 @@ export default function App() {
   }, []);
 
   const isDeuce = !snapshot.isTieBreak && snapshot.rawPointsA === 3 && snapshot.rawPointsB === 3;
-  const isGoldenPointSituation = isDeuce && settings.isGoldenPoint;
+  const isGoldenPointSituation =
+    isDeuce &&
+    settings.isGoldenPoint &&
+    (snapshot.deuceCount ?? 0) >= (settings.advantagesBeforeGoldenPoint ?? 0);
   const currentServingPlayer = getCurrentServingPlayer();
   const isMatchInProgress = snapshot.completedSets.length > 0 || snapshot.currentGamesA > 0 || snapshot.currentGamesB > 0 || snapshot.rawPointsA > 0 || snapshot.rawPointsB > 0;
 
@@ -681,7 +792,6 @@ export default function App() {
           onStartMatch={handleStartMatchFromSetup}
           onGoToScoreboard={() => setCurrentView('scoreboard')}
           isMatchInProgress={isMatchInProgress}
-          onOpenFlutterCode={() => setIsFlutterCodeOpen(true)}
           onOpenRemoteHelper={() => setIsRemoteHelperOpen(true)}
         />
 
@@ -693,47 +803,56 @@ export default function App() {
           onSimulateVolDown={handleUndo}
           lastLogs={lastLogs}
         />
-
-        <FlutterCodeViewerModal
-          isOpen={isFlutterCodeOpen}
-          onClose={() => setIsFlutterCodeOpen(false)}
-        />
       </>
     );
   }
 
-  // RENDER 2: TABELLONE SEGNAPUNTI ORIZZONTALE (LANDSCAPE SCOREBOARD)
-  return (
-    <div className="relative w-full h-screen bg-[#070B14] text-white flex flex-col overflow-hidden select-none font-sans">
-      <LandscapeBanner onForceFullscreen={handleToggleFullscreen} />
+  // RENDER 2: SCHERMATA DI RIEPILOGO FINALE (MATCH RESULT)
+  if (currentView === 'summary') {
+    return (
+      <MatchSummaryScreen
+        snapshot={snapshot}
+        settings={settings}
+        matchDurationFormatted={formatMatchTime(matchSeconds)}
+        onGoToSetup={() => {
+          setHistory([]);
+          setSnapshot(INITIAL_SNAPSHOT);
+          setMatchSeconds(0);
+          setCurrentView('setup');
+        }}
+        onReturnToScoreboard={() => setCurrentView('scoreboard')}
+      />
+    );
+  }
 
-      {/* Header Bar */}
-      <HeaderBar
+  // RENDER 3: SMARTWATCH SCOREBOARD (Apple Watch & Wear OS)
+  if (currentView === 'scoreboard' && isSmartwatchMode) {
+    return (
+      <SmartwatchScoreboard
         snapshot={snapshot}
         settings={settings}
         canUndo={history.length > 0}
-        isFullscreen={isFullscreen}
         matchTimeFormatted={formatMatchTime(matchSeconds)}
         isTimerRunning={isTimerRunning}
-        isWakeLockActive={isWakeLockActive}
-        onToggleTimer={() => setIsTimerRunning(!isTimerRunning)}
-        onStartBreak={() => startBreakTimer(90)}
+        servingPlayerName={currentServingPlayer}
+        onAddPoint={addPoint}
         onUndo={handleUndo}
-        onToggleGoldenPoint={handleToggleGoldenPoint}
-        onToggleMute={handleToggleMute}
-        onReset={handleOpenResetDialog}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onGoToSetup={() => setCurrentView('setup')}
-        onOpenRemoteHelper={() => setIsRemoteHelperOpen(true)}
-        onOpenFlutterCode={() => setIsFlutterCodeOpen(true)}
-        onToggleFullscreen={handleToggleFullscreen}
-        onSwitchSides={handleSwitchSides}
+        onToggleServingTeam={handleToggleServingTeam}
+        onStartBreak={() => startBreakTimer(90)}
+        onExitSmartwatchMode={() => setIsSmartwatchMode(false)}
       />
+    );
+  }
+
+  // RENDER 4: TABELLONE SEGNAPUNTI ORIZZONTALE (LANDSCAPE SCOREBOARD)
+  return (
+    <div className="relative w-full h-screen bg-[#070B14] text-white flex flex-col overflow-hidden select-none font-sans">
+      <LandscapeEnforcer />
 
       {/* MATCH NOTIFICATION OVERLAY */}
       {snapshot.matchWinner && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center px-4 animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 text-white font-black text-sm sm:text-base tracking-widest uppercase shadow-2xl shadow-emerald-500/50 flex items-center gap-3 border border-emerald-300/40">
+        <div className="absolute top-3 left-0 right-0 z-30 flex justify-center px-4 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto">
+          <div className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 text-white font-black text-sm sm:text-base tracking-widest uppercase shadow-2xl shadow-emerald-500/50 flex items-center gap-3 border border-emerald-300/40">
             <Trophy className="w-5 h-5 text-amber-300" />
             <span>PARTITA VINTA DA {getTeamName(snapshot.matchWinner).toUpperCase()}!</span>
             <button
@@ -747,8 +866,8 @@ export default function App() {
       )}
 
       {isGoldenPointSituation && !snapshot.matchWinner && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center px-4 animate-pulse">
-          <div className="px-6 py-2 rounded-xl bg-rose-600 text-white font-black text-xs sm:text-sm tracking-widest uppercase shadow-xl shadow-rose-600/40 flex items-center gap-2 border border-rose-400">
+        <div className="absolute top-3 left-0 right-0 z-30 flex justify-center px-4 animate-pulse pointer-events-none">
+          <div className="px-6 py-1.5 rounded-xl bg-rose-600 text-white font-black text-xs sm:text-sm tracking-widest uppercase shadow-xl shadow-rose-600/40 flex items-center gap-2 border border-rose-400">
             <Sparkles className="w-4 h-4 text-amber-300" />
             <span>40 PARI — PUNTO D'ORO DECISIVO!</span>
           </div>
@@ -756,8 +875,8 @@ export default function App() {
       )}
 
       {snapshot.isTieBreak && !snapshot.matchWinner && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center px-4">
-          <div className="px-6 py-2 rounded-xl bg-purple-600 text-white font-black text-xs sm:text-sm tracking-widest uppercase shadow-xl shadow-purple-600/40 flex items-center gap-2 border border-purple-400">
+        <div className="absolute top-3 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">
+          <div className="px-6 py-1.5 rounded-xl bg-purple-600 text-white font-black text-xs sm:text-sm tracking-widest uppercase shadow-xl shadow-purple-600/40 flex items-center gap-2 border border-purple-400">
             <span>⚡ TIE-BREAK A 7 PUNTI (SERVIZIO 1-2-2-2) ⚡</span>
           </div>
         </div>
@@ -790,8 +909,8 @@ export default function App() {
         </div>
       )}
 
-      {/* MAIN TWO-COLUMN LANDSCAPE SCOREBOARD */}
-      <main className="flex-1 flex flex-row relative divide-x-2 divide-slate-800/80 overflow-hidden">
+      {/* MAIN THREE-COLUMN LANDSCAPE SCOREBOARD - MASSIMO SPAZIO AI PUNTEGGI */}
+      <main className="flex-1 flex flex-row relative divide-x divide-slate-800/80 overflow-hidden">
         {/* LEFT COLUMN: TEAM 1 */}
         <TeamColumn
           team="teamA"
@@ -803,13 +922,28 @@ export default function App() {
           isServing={snapshot.servingTeam === 'teamA'}
           accentColor="lime"
           isTieBreak={snapshot.isTieBreak}
-          isGoldenPoint={settings.isGoldenPoint}
+          isGoldenPoint={isGoldenPointSituation}
           isDeuce={isDeuce}
           onAddPoint={() => addPoint('teamA')}
-          onToggleServer={(e) => {
-            e.stopPropagation();
-            handleToggleServingTeam();
-          }}
+        />
+
+        {/* CENTRAL COLUMN: COMPACT VERTICAL CONTROLS (SOLO ICONE) */}
+        <CentralScoreboardColumn
+          snapshot={snapshot}
+          settings={settings}
+          canUndo={history.length > 0}
+          matchTimeFormatted={formatMatchTime(matchSeconds)}
+          isTimerRunning={isTimerRunning}
+          onToggleTimer={() => setIsTimerRunning(!isTimerRunning)}
+          onToggleServingTeam={handleToggleServingTeam}
+          onToggleGoldenPoint={handleToggleGoldenPoint}
+          onUndo={handleUndo}
+          onStartBreak={() => startBreakTimer(90)}
+          onSwitchSides={handleSwitchSides}
+          onReset={handleOpenResetDialog}
+          onOpenMatchInfo={() => setIsMatchInfoOpen(true)}
+          onTerminate={() => setIsTerminateModalOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
         />
 
         {/* RIGHT COLUMN: TEAM 2 */}
@@ -823,54 +957,33 @@ export default function App() {
           isServing={snapshot.servingTeam === 'teamB'}
           accentColor="cyan"
           isTieBreak={snapshot.isTieBreak}
-          isGoldenPoint={settings.isGoldenPoint}
+          isGoldenPoint={isGoldenPointSituation}
           isDeuce={isDeuce}
           onAddPoint={() => addPoint('teamB')}
-          onToggleServer={(e) => {
-            e.stopPropagation();
-            handleToggleServingTeam();
-          }}
         />
       </main>
-
-      {/* BOTTOM SETS BAR */}
-      <SetsBar
-        completedSets={snapshot.completedSets}
-        currentGamesA={snapshot.currentGamesA}
-        currentGamesB={snapshot.currentGamesB}
-        teamAName={settings.teamAName}
-        teamBName={settings.teamBName}
-      />
-
-      {/* FLOATING ACTION OVERLAYS */}
-      <div className="absolute bottom-16 right-4 z-30 flex items-center gap-2 bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800 backdrop-blur-md shadow-2xl">
-        <button
-          onClick={handleUndo}
-          disabled={history.length === 0}
-          title="Annulla ultimo punto (Vol Down o Tasto U)"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-            history.length > 0
-              ? 'bg-slate-800 hover:bg-slate-700 text-white shadow-md active:scale-95'
-              : 'text-slate-600 cursor-not-allowed'
-          }`}
-        >
-          <span>Undo</span>
-        </button>
-
-        <button
-          onClick={handleToggleServingTeam}
-          title="Avanza battitore nel ciclo a 4"
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-[#CCFF00] font-bold text-xs transition-colors cursor-pointer"
-        >
-          <span>Cambia Battitore</span>
-        </button>
-      </div>
 
       {/* MODALS */}
       <ResetConfirmModal
         isOpen={isResetConfirmOpen}
         onClose={() => setIsResetConfirmOpen(false)}
-        onConfirm={handleConfirmReset}
+        onConfirmReset={handleConfirmReset}
+        onGoToSetup={handleResetAndGoToSetup}
+      />
+
+      <TerminateConfirmModal
+        isOpen={isTerminateModalOpen}
+        onClose={() => setIsTerminateModalOpen(false)}
+        onConfirm={handleTerminateMatch}
+      />
+
+      <MatchInfoModal
+        isOpen={isMatchInfoOpen}
+        onClose={() => setIsMatchInfoOpen(false)}
+        snapshot={snapshot}
+        settings={settings}
+        matchDurationFormatted={formatMatchTime(matchSeconds)}
+        servingPlayerName={currentServingPlayer}
       />
 
       <SettingsModal
@@ -878,6 +991,9 @@ export default function App() {
         settings={settings}
         onClose={() => setIsSettingsOpen(false)}
         onSave={(updated) => setSettings(prev => ({ ...prev, ...updated }))}
+        onOpenRemoteHelper={() => setIsRemoteHelperOpen(true)}
+        onToggleSmartwatchMode={() => setIsSmartwatchMode(!isSmartwatchMode)}
+        isSmartwatchMode={isSmartwatchMode}
       />
 
       <RemoteHelperModal
@@ -887,11 +1003,6 @@ export default function App() {
         onSimulateVolUpDouble={() => addPoint('teamB')}
         onSimulateVolDown={handleUndo}
         lastLogs={lastLogs}
-      />
-
-      <FlutterCodeViewerModal
-        isOpen={isFlutterCodeOpen}
-        onClose={() => setIsFlutterCodeOpen(false)}
       />
     </div>
   );
