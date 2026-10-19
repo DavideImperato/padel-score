@@ -1,17 +1,24 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'remote_bridge/remote_bridge.dart';
+import 'volume/volume_service.dart';
 
-/// Servizio centralizzato per la gestione dei comandi del telecomando selfie Bluetooth,
-/// controller HID, tastiere fisiche e MediaSession API (per Web mobile iOS/Safari e Android/Chrome).
+/// Servizio centralizzato per la gestione degli input da:
+/// - Tasti volume hardware fisici del dispositivo nativo (iOS / Android)
+/// - Telecomandi selfie Bluetooth (impulsi Volume Up / Volume Down)
+/// - Tastiere fisiche, presenter e controller Bluetooth HID (Web e Nativo)
+///
+/// Implementa la logica centralizzata dei clic con timer debounce a 350ms:
+/// - 1 Clic singolo -> SQUADRA A
+/// - 2 Clic rapidi (Doppio Clic) -> SQUADRA B
+/// - Pressione prolungata (Hold) o tasto Undo dedicato (Volume Down, Escape, Backspace) -> UNDO
 class BluetoothKeyService {
   final VoidCallback onTeamAPoint;
   final VoidCallback onTeamBPoint;
   final VoidCallback onUndo;
   final void Function(String actionType, String label)? onFeedback;
 
-  /// FocusNode associabile al widget KeyboardListener
+  /// FocusNode associato al widget KeyboardListener
   final FocusNode focusNode = FocusNode();
 
   // Gestione Debounce per 1 Clic vs 2 Clic entro 350ms
@@ -19,14 +26,15 @@ class BluetoothKeyService {
   int _clickCount = 0;
   static const Duration debounceDuration = Duration(milliseconds: 350);
 
-  // Gestione Pressione Prolungata (Hold) per Undo immediato
+  // Gestione Pressione Prolungata (Hold) per Undo
   Timer? _holdTimer;
   bool _isHoldTriggered = false;
   static const Duration holdDuration = Duration(milliseconds: 550);
 
-  // Cache per evitare doppio evento tra HardwareKeyboard.addHandler e KeyboardListener
-  int _lastEventTimestamp = 0;
-  LogicalKeyboardKey? _lastKeyHandled;
+  // Deduplicazione tra VolumeService nativo e HardwareKeyboard (evita falsi doppi clic entro 50ms)
+  int _lastImpulseTimestamp = 0;
+  int _lastKeyEventTimestamp = 0;
+  LogicalKeyboardKey? _lastHandledKey;
 
   BluetoothKeyService({
     required this.onTeamAPoint,
@@ -35,15 +43,25 @@ class BluetoothKeyService {
     this.onFeedback,
   });
 
-  /// Inizializza il bridge Web (MediaSession e background audio) e l'ascolto tastiera globale
+  /// Inizializza l'ascolto su piattaforme native (iOS/Android) e su Web
   void init() {
-    // 1. Collega il bridge Web per MediaSession API e background audio
-    RemoteBridge.instance.init(onSignal: _handleRemoteSignal);
+    // 1. Inizializza il listener per i tasti del volume hardware nativi
+    // Su iOS TestFlight e Android APK cattura gli eventi hardware reali
+    VolumeService.instance.init(
+      onVolumeUp: () {
+        debugPrint('[BluetoothKeyService] Hardware Volume UP ricevuto da VolumeService');
+        _registerClick();
+      },
+      onVolumeDown: () {
+        debugPrint('[BluetoothKeyService] Hardware Volume DOWN ricevuto da VolumeService -> UNDO');
+        _triggerUndo();
+      },
+    );
 
-    // 2. Registra listener globale su HardwareKeyboard (cattura tasti anche senza focus esplicito)
+    // 2. Registra listener globale su HardwareKeyboard (cattura tasti fisici ovunque nell'app)
     HardwareKeyboard.instance.addHandler(_handleGlobalHardwareEvent);
 
-    // 3. Richiede il focus al widget KeyboardListener
+    // 3. Richiede il focus al KeyboardListener
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!focusNode.hasFocus) {
         focusNode.requestFocus();
@@ -51,26 +69,13 @@ class BluetoothKeyService {
     });
   }
 
-  /// Gestisce i segnali ricevuti dalla MediaSession API del browser o dall'evento JS
-  void _handleRemoteSignal(String action) {
-    debugPrint('[BluetoothKeyService] Segnale remoto ricevuto: $action');
-    RemoteBridge.instance.unlockAudio();
-
-    if (action == 'undo' || action == 'hold') {
-      _triggerUndo();
-    } else {
-      // Qualsiasi impulso di clic (play, pause, nexttrack, previoustrack, stop, click)
-      _registerClick();
-    }
-  }
-
-  /// Handler globale registrato con HardwareKeyboard.instance.addHandler
+  /// Handler per HardwareKeyboard.instance.addHandler
   bool _handleGlobalHardwareEvent(KeyEvent event) {
     final result = _processKeyEvent(event);
     return result == KeyEventResult.handled;
   }
 
-  /// Handler per il widget KeyboardListener
+  /// Handler per il widget KeyboardListener dell'interfaccia
   KeyEventResult handleKeyEvent(FocusNode node, KeyEvent event) {
     return _processKeyEvent(event);
   }
@@ -80,15 +85,12 @@ class BluetoothKeyService {
     final key = event.logicalKey;
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Deduplica se lo stesso evento viene processato da entrambi i listener entro 15ms
-    if (_lastKeyHandled == key && (now - _lastEventTimestamp) < 15) {
+    // Deduplica se lo stesso evento viene processato contemporaneamente da entrambi i listener
+    if (_lastHandledKey == key && (now - _lastKeyEventTimestamp) < 15) {
       return KeyEventResult.handled;
     }
-    _lastKeyHandled = key;
-    _lastEventTimestamp = now;
-
-    // Sblocca eventuale audio su Web
-    RemoteBridge.instance.unlockAudio();
+    _lastHandledKey = key;
+    _lastKeyEventTimestamp = now;
 
     // 1. TASTI DI UNDO IMMEDIATO: Escape, Backspace, Volume Down
     if (key == LogicalKeyboardKey.escape ||
@@ -101,7 +103,7 @@ class BluetoothKeyService {
       return KeyEventResult.handled;
     }
 
-    // 2. TASTI IMPULSO STANDARD (Telecomando selfie, Volume Up, Presenter, Frecce, Spazio, Invio, Next/Prev)
+    // 2. TASTI IMPULSO STANDARD (Telecomando selfie Bluetooth, Volume Up, Presenter, Frecce, Spazio, Invio)
     final bool isImpulseKey =
         key == LogicalKeyboardKey.audioVolumeUp ||
         key == LogicalKeyboardKey.arrowUp ||
@@ -127,7 +129,7 @@ class BluetoothKeyService {
         });
         return KeyEventResult.handled;
       } else if (event is KeyUpEvent) {
-        // Tasto rilasciato prima del completamento dell'Hold -> registra impulso clic singolo/doppio
+        // Tasto rilasciato prima dell'Hold -> registra impulso clic (singolo o doppio)
         _holdTimer?.cancel();
         if (_isHoldTriggered) {
           _isHoldTriggered = false;
@@ -136,7 +138,7 @@ class BluetoothKeyService {
         }
         return KeyEventResult.handled;
       } else if (event is KeyRepeatEvent) {
-        // Pressione continuata prolungata rilevata dall'OS -> attiva subito UNDO
+        // Pressione continuata prolungata -> attiva subito UNDO
         if (!_isHoldTriggered) {
           _holdTimer?.cancel();
           _isHoldTriggered = true;
@@ -146,7 +148,7 @@ class BluetoothKeyService {
       }
     }
 
-    // 3. SCORCIATOIE RAPIDE DIRETTE DA TASTIERA (Arbitro / Test da banco)
+    // 3. SCORCIATOIE RAPIDE DA TASTIERA PER TEST / ARBITRO
     if (event is KeyDownEvent) {
       if (key == LogicalKeyboardKey.keyA || key == LogicalKeyboardKey.digit1) {
         onFeedback?.('teamA', '+1 SQUADRA A');
@@ -158,8 +160,7 @@ class BluetoothKeyService {
         onTeamBPoint();
         return KeyEventResult.handled;
       }
-      if (key == LogicalKeyboardKey.keyU ||
-          key == LogicalKeyboardKey.keyZ) {
+      if (key == LogicalKeyboardKey.keyU || key == LogicalKeyboardKey.keyZ) {
         _triggerUndo();
         return KeyEventResult.handled;
       }
@@ -168,18 +169,26 @@ class BluetoothKeyService {
     return KeyEventResult.ignored;
   }
 
-  /// LOGICA ESATTA DEI CLIC (TIMER DEBOUNCE 350ms):
-  /// - 1 Clic Singolo: Se entro 350ms non arriva un secondo clic -> SQUADRA A.
-  /// - 2 Clic Rapidi (Doppio Clic): Se arriva un secondo impulso entro 350ms -> Annulla il singolo e assegna SQUADRA B.
+  /// LOGICA CENTRALIZZATA DEI CLIC (TIMER DEBOUNCE ~350ms):
+  /// - 1 Clic singolo: se entro 350ms non arriva un secondo impulso -> Aumenta il punteggio della SQUADRA A.
+  /// - 2 Clic rapidi (Doppio Clic): se arriva un secondo impulso entro 350ms -> Annulla il singolo clic e aumenta il punteggio della SQUADRA B.
   void _registerClick() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Filtro antirimbalzo per evitare doppie registrazioni da listener simultanei (hardware volume + keyboard event)
+    if ((now - _lastImpulseTimestamp) < 50) {
+      return;
+    }
+    _lastImpulseTimestamp = now;
+
     _clickCount++;
 
     if (_clickCount == 1) {
-      // 1° Clic: avvia timer debounce da 350ms
+      // 1° Clic: avvia timer di debounce di 350ms
       _debounceTimer?.cancel();
       _debounceTimer = Timer(debounceDuration, () {
         if (_clickCount == 1) {
-          debugPrint('[BluetoothKeyService] Clic Singolo (<350ms) confermato -> SQUADRA A');
+          debugPrint('[BluetoothKeyService] Clic Singolo confermato (<350ms) -> +1 SQUADRA A');
           onFeedback?.('teamA', '+1 SQUADRA A');
           onTeamAPoint();
         }
@@ -187,22 +196,22 @@ class BluetoothKeyService {
         _debounceTimer = null;
       });
     } else if (_clickCount >= 2) {
-      // 2° Clic arrivato prima della scadenza dei 350ms: annulla singolo e assegna SQUADRA B
+      // 2° Clic arrivato entro 350ms: annulla singolo e assegna SQUADRA B
       _debounceTimer?.cancel();
       _debounceTimer = null;
       _clickCount = 0;
-      debugPrint('[BluetoothKeyService] Doppio Clic (<350ms) confermato -> SQUADRA B');
+      debugPrint('[BluetoothKeyService] Doppio Clic confermato (<350ms) -> +1 SQUADRA B');
       onFeedback?.('teamB', '+1 SQUADRA B');
       onTeamBPoint();
     }
   }
 
-  /// Pressione Prolungata (Hold) o tasto Escape/Backspace/Volume Down -> UNDO
+  /// Pressione Prolungata (Hold) o tasto Undo dedicato (Volume Down, Escape, Backspace) -> UNDO
   void _triggerUndo() {
     _debounceTimer?.cancel();
     _debounceTimer = null;
     _clickCount = 0;
-    debugPrint('[BluetoothKeyService] Hold / Escape / Undo rilevato -> UNDO');
+    debugPrint('[BluetoothKeyService] Azione UNDO confermata');
     onFeedback?.('undo', 'PUNTO ANNULLATO (UNDO)');
     onUndo();
   }
@@ -211,7 +220,7 @@ class BluetoothKeyService {
     _debounceTimer?.cancel();
     _holdTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleGlobalHardwareEvent);
-    RemoteBridge.instance.dispose();
+    VolumeService.instance.dispose();
     focusNode.dispose();
   }
 }

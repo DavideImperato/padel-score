@@ -1,5 +1,5 @@
-// Listener centralizzato per telecomandi selfie Bluetooth, controller HID e MediaSession API
-// Compatibile con browser mobile (iOS/Safari e Android/Chrome) e piattaforme desktop.
+// Listener centralizzato per tastiere fisiche, presenter e telecomandi Bluetooth HID
+// Funziona su qualsiasi browser (desktop e mobile) senza alcuna traccia audio in background.
 
 export interface BluetoothKeyCallbacks {
   onTeamA: () => void;
@@ -16,12 +16,11 @@ export class BluetoothKeyListener {
 
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private isHoldTriggered = false;
-  private readonly holdDuration = 600; // 600ms per Hold / Pressione prolungata
+  private readonly holdDuration = 550; // 550ms per Hold / Pressione prolungata
 
   private callbacks: BluetoothKeyCallbacks;
   private isListening = false;
-  private isAudioUnlocked = false;
-  private silentAudio: HTMLAudioElement | null = null;
+  private lastImpulseTime = 0;
 
   constructor(callbacks: BluetoothKeyCallbacks) {
     this.callbacks = callbacks;
@@ -35,15 +34,9 @@ export class BluetoothKeyListener {
     if (this.isListening || typeof window === 'undefined') return;
     this.isListening = true;
 
-    // 1. Sblocco audio in background per attivazione MediaSession API su mobile (iOS/Android)
-    this.setupSilentAudioAndMediaSession();
-
-    // 2. Ascolto globale degli eventi tastiera (keydown e keyup per rilevazione Hold)
+    // Ascolto globale degli eventi tastiera (keydown e keyup per rilevazione Hold/Doppio clic)
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
-
-    // 3. Ascolto del custom event dal bridge JS se presente
-    window.addEventListener('padel-remote-signal', this.handleCustomSignal as EventListener);
   }
 
   public stop() {
@@ -52,7 +45,6 @@ export class BluetoothKeyListener {
 
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
     window.removeEventListener('keyup', this.handleKeyUp, { capture: true });
-    window.removeEventListener('padel-remote-signal', this.handleCustomSignal as EventListener);
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -65,94 +57,7 @@ export class BluetoothKeyListener {
   }
 
   // =========================================================================
-  // 1. SBLOCCO AUDIO BROWSER & MEDIASESSION API (Mobile Web iOS/Safari & Android)
-  // =========================================================================
-  private setupSilentAudioAndMediaSession() {
-    if (typeof window === 'undefined') return;
-
-    // Base64 silent audio WAV track (1 secondo in loop)
-    const SILENT_WAV =
-      'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAAAAAAAAAAAAAAAAAAAA';
-
-    const unlockOnGesture = () => {
-      if (this.isAudioUnlocked) return;
-
-      try {
-        if (!this.silentAudio) {
-          this.silentAudio = new Audio(SILENT_WAV);
-          this.silentAudio.loop = true;
-          this.silentAudio.volume = 0.01;
-        }
-
-        const promise = this.silentAudio.play();
-        if (promise !== undefined) {
-          promise
-            .then(() => {
-              this.isAudioUnlocked = true;
-              this.initMediaSession();
-              this.callbacks.onLog?.('MediaSession sbloccata con traccia audio background', 'other');
-            })
-            .catch(() => {});
-        }
-      } catch (e) {
-        console.warn('Errore unlock MediaSession:', e);
-      }
-    };
-
-    window.addEventListener('click', unlockOnGesture, { passive: true, once: true });
-    window.addEventListener('touchstart', unlockOnGesture, { passive: true, once: true });
-    window.addEventListener('pointerdown', unlockOnGesture, { passive: true, once: true });
-    window.addEventListener('keydown', unlockOnGesture, { passive: true, once: true });
-  }
-
-  private initMediaSession() {
-    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
-
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: 'Padel ScoreBot',
-        artist: 'Telecomando Bluetooth Attivo',
-        album: 'Segnapunti Padel',
-      });
-
-      const handleMediaAction = (actionName: string) => {
-        this.callbacks.onLog?.(`MediaSession pulsante: ${actionName}`, 'up1');
-        this.registerImpulse();
-      };
-
-      const actions: MediaSessionAction[] = [
-        'play',
-        'pause',
-        'nexttrack',
-        'previoustrack',
-        'stop',
-        'seekbackward',
-        'seekforward',
-      ];
-
-      actions.forEach((act) => {
-        try {
-          navigator.mediaSession.setActionHandler(act, () => {
-            handleMediaAction(act);
-          });
-        } catch (_) {}
-      });
-    } catch (e) {
-      console.warn('MediaSession initialization error:', e);
-    }
-  }
-
-  private handleCustomSignal = (e: CustomEvent) => {
-    const action = e.detail?.action;
-    if (action === 'undo' || action === 'hold') {
-      this.triggerUndo();
-    } else {
-      this.registerImpulse();
-    }
-  };
-
-  // =========================================================================
-  // 2. KEYBOARD LISTENER GLOBALE (HID / Presenter / Controller)
+  // GESTIONE KEYBOARD LISTENER GLOBALE (HID / Presenter / Telecomando Bluetooth)
   // =========================================================================
   private handleKeyDown = (e: KeyboardEvent) => {
     // Ignora gli input se l'utente sta digitando in un campo testo
@@ -169,7 +74,7 @@ export class BluetoothKeyListener {
     const key = e.key;
     const code = e.code;
 
-    // 1. Tasti di UNDO immediato: Escape, Backspace, Volume Down
+    // 1. TASTI DI UNDO IMMEDIATO: Escape, Backspace, Volume Down
     if (
       key === 'Escape' ||
       code === 'Escape' ||
@@ -184,7 +89,7 @@ export class BluetoothKeyListener {
       return;
     }
 
-    // 2. Tasti impulso standard (Volume Up, Frecce, Spazio, Invio, Next/Prev)
+    // 2. TASTI IMPULSO STANDARD (Volume Up, Frecce, Spazio, Invio, Next/Prev)
     const isImpulse =
       key === 'AudioVolumeUp' ||
       code === 'AudioVolumeUp' ||
@@ -215,7 +120,7 @@ export class BluetoothKeyListener {
         return;
       }
 
-      // Avvia timer di Hold per pressione prolungata (>600ms)
+      // Avvia timer di Hold per pressione prolungata (>550ms)
       if (!this.holdTimer && !this.isHoldTriggered) {
         this.holdTimer = setTimeout(() => {
           this.isHoldTriggered = true;
@@ -225,7 +130,7 @@ export class BluetoothKeyListener {
       return;
     }
 
-    // 3. Scorciatoie dirette per arbitro/test da tastiera
+    // 3. SCORCIATOIE DIRETTE DA TASTIERA PER TEST / ARBITRO
     if (key === 'a' || key === 'A' || key === '1') {
       this.callbacks.onLog?.('Tasto A / 1 -> +1 Squadra A', 'up1');
       this.callbacks.onFeedback?.('teamA', '+1 SQUADRA A');
@@ -282,7 +187,7 @@ export class BluetoothKeyListener {
   };
 
   // =========================================================================
-  // 3. LOGICA ESATTA DEI CLIC (TIMER DEBOUNCE 350ms)
+  // LOGICA CENTRALIZZATA DEI CLIC (TIMER DEBOUNCE ~350ms)
   // =========================================================================
 
   /**
@@ -290,6 +195,10 @@ export class BluetoothKeyListener {
    * 2 Clic Rapidi: Se arriva un secondo impulso entro 350 ms -> Squadra B
    */
   public registerImpulse() {
+    const now = Date.now();
+    if (now - this.lastImpulseTime < 50) return;
+    this.lastImpulseTime = now;
+
     this.clickCount++;
 
     if (this.clickCount === 1) {
