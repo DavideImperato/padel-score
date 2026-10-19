@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
+import '../services/remote_bridge/remote_bridge.dart';
 import 'landscape_scoreboard_screen.dart';
 
 class MatchSetupScreen extends StatefulWidget {
@@ -54,6 +55,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     HapticFeedback.heavyImpact();
+    RemoteBridge.instance.unlockAudio();
 
     final provider = context.read<PadelScoreProvider>();
     provider.setupMatch(

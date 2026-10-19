@@ -1,46 +1,163 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Tabellone segnapunti Padel stile ScoreBot con supporto telecomando Bluetooth, MediaSession API e sintesi vocale.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="padel_scorebot">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Padel ScoreBot">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>padel_scorebot</title>
+  <title>Padel ScoreBot</title>
   <link rel="manifest" href="manifest.json">
 </head>
-<body style="background-color: #0b0f19; margin:0;">
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+<body style="background-color: #070B14; margin: 0; overflow: hidden;">
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <!-- Audio in background completamente silenzioso in loop per sbloccare la MediaSession API su iOS/Safari e Android/Chrome -->
+  <audio
+    id="padel-silent-audio"
+    preload="auto"
+    loop
+    playsinline
+    webkit-playsinline
+    src="data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAAAAAAAAAAAAAAAAAAAA"
+  ></audio>
+
+  <script>
+    (function() {
+      // 1. SBLOCCO AUDIO BROWSER E MEDIASESSION API (Mobile Web iOS/Safari & Android/Chrome)
+      var isAudioUnlocked = false;
+      var silentAudio = document.getElementById('padel-silent-audio');
+
+      function unlockMediaSession() {
+        if (isAudioUnlocked) return;
+
+        if (silentAudio) {
+          silentAudio.volume = 0.01;
+          var playPromise = silentAudio.play();
+          if (playPromise !== undefined) {
+            playPromise.then(function() {
+              isAudioUnlocked = true;
+              initMediaSession();
+              console.log('[Padel Web Remote] Traccia silenziosa attiva e MediaSession sbloccata con successo.');
+            }).catch(function(err) {
+              console.warn('[Padel Web Remote] Autoplay in attesa di interazione:', err);
+            });
+          }
+        }
+      }
+
+      function initMediaSession() {
+        if (!('mediaSession' in navigator)) return;
+
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: 'Padel ScoreBot',
+            artist: 'Telecomando Bluetooth Attivo',
+            album: 'Segnapunti Padel'
+          });
+
+          function dispatchRemoteSignal(action) {
+            // Invia CustomEvent per il bridge Dart/Flutter
+            window.dispatchEvent(new CustomEvent('padel-remote-signal', { detail: { action: action } }));
+
+            // Chiama callback diretta se registrata da Flutter
+            if (typeof window.__onPadelRemoteSignal === 'function') {
+              window.__onPadelRemoteSignal(action);
+            }
+          }
+
+          var actions = ['play', 'pause', 'nexttrack', 'previoustrack', 'stop', 'seekbackward', 'seekforward'];
+          actions.forEach(function(act) {
+            try {
+              navigator.mediaSession.setActionHandler(act, function() {
+                // I telecomandi selfie inviano play, pause o nexttrack
+                dispatchRemoteSignal(act);
+              });
+            } catch (e) {}
+          });
+        } catch (e) {
+          console.warn('[Padel Web Remote] Errore configurazione MediaSession:', e);
+        }
+      }
+
+      // Sblocco al primo tocco o clic dell'utente
+      window.addEventListener('click', unlockMediaSession, { passive: true });
+      window.addEventListener('touchstart', unlockMediaSession, { passive: true });
+      window.addEventListener('pointerdown', unlockMediaSession, { passive: true });
+      window.addEventListener('keydown', unlockMediaSession, { passive: true });
+
+      // 2. CAPTURE EVENTI TASTIERA GLOBALE (HID / Presenter / Telecomando)
+      var holdTimer = null;
+      var isHold = false;
+
+      window.addEventListener('keydown', function(e) {
+        var tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+        var k = e.key;
+
+        // Undo immediato per Escape, Backspace e Volume Down
+        if (k === 'Escape' || k === 'Backspace' || k === 'AudioVolumeDown' || k === 'VolumeDown') {
+          if (typeof window.__onPadelRemoteSignal === 'function') {
+            window.__onPadelRemoteSignal('undo');
+          }
+          return;
+        }
+
+        var isImpulse =
+          k === 'AudioVolumeUp' || k === 'VolumeUp' || k === 'ArrowUp' || k === 'ArrowDown' ||
+          k === ' ' || k === 'Enter' || k === 'MediaTrackNext' || k === 'MediaTrackPrevious';
+
+        if (isImpulse) {
+          if (!holdTimer && !isHold) {
+            holdTimer = setTimeout(function() {
+              isHold = true;
+              if (typeof window.__onPadelRemoteSignal === 'function') {
+                window.__onPadelRemoteSignal('hold');
+              }
+            }, 600);
+          }
+        }
+      }, { capture: true });
+
+      window.addEventListener('keyup', function(e) {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+
+        if (isHold) {
+          isHold = false;
+          return;
+        }
+
+        var tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+        var k = e.key;
+        var isImpulse =
+          k === 'AudioVolumeUp' || k === 'VolumeUp' || k === 'ArrowUp' || k === 'ArrowDown' ||
+          k === ' ' || k === 'Enter' || k === 'MediaTrackNext' || k === 'MediaTrackPrevious';
+
+        if (isImpulse) {
+          if (typeof window.__onPadelRemoteSignal === 'function') {
+            window.__onPadelRemoteSignal('click');
+          }
+        }
+      }, { capture: true });
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

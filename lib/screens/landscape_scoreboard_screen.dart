@@ -39,7 +39,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     // Nasconde la barra di navigazione e di stato per massima immersività
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    // 2. Inizializzazione del servizio telecomando Bluetooth
+    // 2. Inizializzazione del servizio telecomando Bluetooth con debounce e feedback visivo
     final provider = context.read<PadelScoreProvider>();
     _keyService = BluetoothKeyService(
       onTeamAPoint: () {
@@ -54,12 +54,43 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         HapticFeedback.mediumImpact();
         provider.undo();
       },
+      onFeedback: (type, label) {
+        _showRemoteFeedback(type, label);
+      },
     );
 
     _keyService.init();
 
     // 3. Avvio cronometro partita
     _startMatchTimer();
+  }
+
+  // Feedback visivo a schermo per azioni da telecomando/tastiera
+  String? _remoteFeedbackText;
+  Color _remoteFeedbackColor = const Color(0xFFCCFF00);
+  Timer? _feedbackDismissTimer;
+
+  void _showRemoteFeedback(String type, String message) {
+    _feedbackDismissTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _remoteFeedbackText = message;
+      if (type == 'teamA') {
+        _remoteFeedbackColor = const Color(0xFFCCFF00); // Giallo Fluo
+      } else if (type == 'teamB') {
+        _remoteFeedbackColor = const Color(0xFF00E5FF); // Ciano Elettrico
+      } else {
+        _remoteFeedbackColor = const Color(0xFFF43F5E); // Rosa / Rosso Undo
+      }
+    });
+
+    _feedbackDismissTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) {
+        setState(() {
+          _remoteFeedbackText = null;
+        });
+      }
+    });
   }
 
   void _startMatchTimer() {
@@ -119,6 +150,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
   void dispose() {
     _matchTimer?.cancel();
     _breakTimer?.cancel();
+    _feedbackDismissTimer?.cancel();
     _keyService.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -219,6 +251,54 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
               // OVERLAY TIMER CAMBIO CAMPO (90s / 120s FIP)
               if (_isBreakActive)
                 _buildBreakTimerOverlay(),
+
+              // OVERLAY FEEDBACK VISIVO TELECOMANDO BLUETOOTH (Punto A, Punto B, Undo)
+              if (_remoteFeedbackText != null)
+                Positioned(
+                  top: 50,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF070B14).withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: _remoteFeedbackColor, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _remoteFeedbackColor.withOpacity(0.4),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _remoteFeedbackColor == const Color(0xFFF43F5E)
+                                ? Icons.undo_rounded
+                                : Icons.radio_button_checked,
+                            color: _remoteFeedbackColor,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _remoteFeedbackText!,
+                            style: TextStyle(
+                              color: _remoteFeedbackColor,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

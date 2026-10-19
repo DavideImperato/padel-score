@@ -99,6 +99,21 @@ export default function App() {
   });
   const [lastLogs, setLastLogs] = useState<Array<{ text: string; time: string; type: 'up1' | 'up2' | 'down' | 'other' }>>([]);
 
+  // Feedback visivo a schermo per telecomando Bluetooth
+  const [remoteFeedback, setRemoteFeedback] = useState<{ text: string; color: string } | null>(null);
+  const feedbackDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showRemoteFeedback = useCallback((action: 'teamA' | 'teamB' | 'undo', label: string) => {
+    if (feedbackDismissTimerRef.current) {
+      clearTimeout(feedbackDismissTimerRef.current);
+    }
+    const color = action === 'teamA' ? '#ccff00' : (action === 'teamB' ? '#00e5ff' : '#f43f5e');
+    setRemoteFeedback({ text: label, color });
+    feedbackDismissTimerRef.current = setTimeout(() => {
+      setRemoteFeedback(null);
+    }, 1400);
+  }, []);
+
   // Auto-detect Smartwatch screen resize
   useEffect(() => {
     const handleCheckWatch = () => {
@@ -747,6 +762,7 @@ export default function App() {
       onTeamB: () => addPoint('teamB'),
       onUndo: () => handleUndo(),
       onLog: (msg, type) => addLog(msg, type),
+      onFeedback: (action, label) => showRemoteFeedback(action, label),
     });
     listener.start();
     keyListenerRef.current = listener;
@@ -754,7 +770,7 @@ export default function App() {
     return () => {
       listener.stop();
     };
-  }, [addPoint, handleUndo, addLog]);
+  }, [addPoint, handleUndo, addLog, showRemoteFeedback]);
 
   useEffect(() => {
     if (keyListenerRef.current) {
@@ -763,9 +779,10 @@ export default function App() {
         onTeamB: () => addPoint('teamB'),
         onUndo: () => handleUndo(),
         onLog: (msg, type) => addLog(msg, type),
+        onFeedback: (action, label) => showRemoteFeedback(action, label),
       });
     }
-  }, [addPoint, handleUndo, addLog]);
+  }, [addPoint, handleUndo, addLog, showRemoteFeedback]);
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -848,6 +865,30 @@ export default function App() {
   return (
     <div className="relative w-full h-screen bg-[#070B14] text-white flex flex-col overflow-hidden select-none font-sans">
       <LandscapeEnforcer />
+
+      {/* OVERLAY FEEDBACK VISIVO TELECOMANDO BLUETOOTH */}
+      {remoteFeedback && (
+        <div className="absolute top-4 left-0 right-0 z-50 flex justify-center pointer-events-none animate-in fade-in zoom-in-95 duration-200">
+          <div
+            className="px-6 py-2.5 rounded-full bg-[#070B14]/95 backdrop-blur-md border-2 shadow-2xl flex items-center gap-2.5"
+            style={{
+              borderColor: remoteFeedback.color,
+              boxShadow: `0 0 25px ${remoteFeedback.color}66`,
+            }}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full animate-ping"
+              style={{ backgroundColor: remoteFeedback.color }}
+            />
+            <span
+              className="font-black text-xs sm:text-sm tracking-widest uppercase"
+              style={{ color: remoteFeedback.color }}
+            >
+              {remoteFeedback.text}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* MATCH NOTIFICATION OVERLAY */}
       {snapshot.matchWinner && (
