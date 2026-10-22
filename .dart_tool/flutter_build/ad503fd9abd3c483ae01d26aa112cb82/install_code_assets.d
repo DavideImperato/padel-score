@@ -1,0 +1,1 @@
+ /Users/davideimperato/Lavoro/PadelScore/padel-score/.dart_tool/flutter_build/ad503fd9abd3c483ae01d26aa112cb82/native_assets.json: 
