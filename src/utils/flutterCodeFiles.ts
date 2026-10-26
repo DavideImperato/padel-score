@@ -318,7 +318,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   {
     path: 'lib/models/padel_match_state.dart',
     filename: 'padel_match_state.dart',
-    description: 'Modello immutabile con servingRotationIndex per la rotazione a 4 giocatori',
+    description: 'Modello immutabile con PlayerId (1..4), FIP 2026 rotation e deuceCount per Star Point',
     language: 'dart',
     content: `import 'package:flutter/foundation.dart';
 
@@ -327,6 +327,33 @@ enum Team {
   teamB;
 
   Team get opposite => this == Team.teamA ? Team.teamB : Team.teamA;
+}
+
+typedef PlayerId = int; // 1, 2, 3 o 4
+
+Team getTeamForPlayerId(int playerId) {
+  return (playerId == 1 || playerId == 2) ? Team.teamA : Team.teamB;
+}
+
+List<int> getRotationOrder(int firstServerPlayerId) {
+  switch (firstServerPlayerId) {
+    case 1: return const [1, 3, 2, 4];
+    case 2: return const [2, 3, 1, 4];
+    case 3: return const [3, 1, 4, 2];
+    case 4: return const [4, 1, 3, 2];
+    default: return const [1, 3, 2, 4];
+  }
+}
+
+int getCurrentServerPlayerId(PadelMatchSnapshot snapshot, int firstServerPlayerId) {
+  final rotation = getRotationOrder(firstServerPlayerId);
+  if (snapshot.isTieBreak) {
+    final int initialIdx = snapshot.tieBreakInitialRotationIndex ?? snapshot.servingRotationIndex;
+    final int totalPoints = snapshot.tieBreakPointsA + snapshot.tieBreakPointsB;
+    final int shift = totalPoints == 0 ? 0 : ((totalPoints + 1) ~/ 2);
+    return rotation[(initialIdx + shift) % rotation.length];
+  }
+  return rotation[snapshot.servingRotationIndex % rotation.length];
 }
 
 @immutable
@@ -360,6 +387,7 @@ class SetScore {
 class PadelMatchSnapshot {
   final int rawPointsA;
   final int rawPointsB;
+  final int deuceCount;
   final int currentGamesA;
   final int currentGamesB;
   final List<SetScore> completedSets;
@@ -376,6 +404,7 @@ class PadelMatchSnapshot {
   const PadelMatchSnapshot({
     required this.rawPointsA,
     required this.rawPointsB,
+    this.deuceCount = 0,
     required this.currentGamesA,
     required this.currentGamesB,
     required this.completedSets,
@@ -394,6 +423,7 @@ class PadelMatchSnapshot {
     return PadelMatchSnapshot(
       rawPointsA: 0,
       rawPointsB: 0,
+      deuceCount: 0,
       currentGamesA: 0,
       currentGamesB: 0,
       completedSets: const [],
@@ -433,14 +463,15 @@ class PadelMatchSnapshot {
     }
   }
 
-  bool isGoldenPointSituation(bool goldenPointEnabled) {
+  bool isGoldenPointSituation(bool goldenPointEnabled, [int advantagesBeforeGoldenPoint = 0]) {
     if (isTieBreak) return false;
-    return goldenPointEnabled && rawPointsA == 3 && rawPointsB == 3;
+    return goldenPointEnabled && rawPointsA == 3 && rawPointsB == 3 && deuceCount >= advantagesBeforeGoldenPoint;
   }
 
   PadelMatchSnapshot copyWith({
     int? rawPointsA,
     int? rawPointsB,
+    int? deuceCount,
     int? currentGamesA,
     int? currentGamesB,
     List<SetScore>? completedSets,
@@ -457,6 +488,7 @@ class PadelMatchSnapshot {
     return PadelMatchSnapshot(
       rawPointsA: rawPointsA ?? this.rawPointsA,
       rawPointsB: rawPointsB ?? this.rawPointsB,
+      deuceCount: deuceCount ?? this.deuceCount,
       currentGamesA: currentGamesA ?? this.currentGamesA,
       currentGamesB: currentGamesB ?? this.currentGamesB,
       completedSets: completedSets ?? this.completedSets,
@@ -477,17 +509,15 @@ class PadelMatchSnapshot {
   {
     path: 'lib/providers/padel_score_provider.dart',
     filename: 'padel_score_provider.dart',
-    description: 'Rotazione ufficiale 4 giocatori, cadenza arbitrale TTS e state machine',
+    description: 'Rotazione ufficiale FIP 2026, ID stabili 1..4, Star Point e visual switchSides',
     language: 'dart',
-    content: `// Vedi visualizzatore completo per padel_score_provider.dart
-import 'package:flutter/foundation.dart';
+    content: `import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/padel_match_state.dart';
 import '../services/tts_service.dart';
 
 class PadelScoreProvider extends ChangeNotifier {
   final TtsService _ttsService;
-
   PadelMatchSnapshot _currentSnapshot = PadelMatchSnapshot.initial();
   final List<PadelMatchSnapshot> _history = [];
 
@@ -497,15 +527,15 @@ class PadelScoreProvider extends ChangeNotifier {
   String _player2Name = 'Luigi Verdi';
   String _player3Name = 'Paolo Bianchi';
   String _player4Name = 'Marco Neri';
+  int _firstServerPlayerId = 1;
 
-  List<String> _rotationOrder = [];
   bool _isGoldenPoint = true;
+  int _advantagesBeforeGoldenPoint = 0;
   int _bestOfSets = 3;
+  bool _isSidesSwapped = false;
 
   PadelScoreProvider({TtsService? ttsService})
-      : _ttsService = ttsService ?? TtsService() {
-    _updateRotationList(initialServerPlayerId: 1);
-  }
+      : _ttsService = ttsService ?? TtsService();
 
   PadelMatchSnapshot get snapshot => _currentSnapshot;
   String get teamAName => _teamAName;
@@ -514,50 +544,66 @@ class PadelScoreProvider extends ChangeNotifier {
   String get player2Name => _player2Name;
   String get player3Name => _player3Name;
   String get player4Name => _player4Name;
+  int get firstServerPlayerId => _firstServerPlayerId;
   bool get isGoldenPoint => _isGoldenPoint;
+  int get advantagesBeforeGoldenPoint => _advantagesBeforeGoldenPoint;
   int get bestOfSets => _bestOfSets;
   bool get canUndo => _history.isNotEmpty;
   bool get isMuted => _ttsService.isMuted;
   bool get isMatchOver => _currentSnapshot.matchWinner != null;
+  bool get isSidesSwapped => _isSidesSwapped;
 
-  String get currentServingPlayerName {
-    if (_rotationOrder.isEmpty) return _player1Name;
-    return _rotationOrder[_currentSnapshot.servingRotationIndex % _rotationOrder.length];
-  }
+  int get currentServerPlayerId => getCurrentServerPlayerId(_currentSnapshot, _firstServerPlayerId);
 
-  void _updateRotationList({int initialServerPlayerId = 1}) {
-    switch (initialServerPlayerId) {
-      case 1: _rotationOrder = [_player1Name, _player3Name, _player2Name, _player4Name]; break;
-      case 2: _rotationOrder = [_player2Name, _player3Name, _player1Name, _player4Name]; break;
-      case 3: _rotationOrder = [_player3Name, _player1Name, _player4Name, _player2Name]; break;
-      case 4: _rotationOrder = [_player4Name, _player1Name, _player3Name, _player2Name]; break;
-      default: _rotationOrder = [_player1Name, _player3Name, _player2Name, _player4Name];
+  String getPlayerNameById(int playerId) {
+    switch (playerId) {
+      case 1: return _player1Name;
+      case 2: return _player2Name;
+      case 3: return _player3Name;
+      case 4: return _player4Name;
+      default: return 'Giocatore \$playerId';
     }
   }
 
-  void setupMatch({required String team1, required String team2, required String player1, required String player2, required String player3, required String player4, required int firstServerPlayerId, required bool goldenPoint, required int bestOfSets}) {
+  String get currentServingPlayerName => getPlayerNameById(currentServerPlayerId);
+
+  void setupMatch({
+    required String team1,
+    required String team2,
+    required String player1,
+    required String player2,
+    required String player3,
+    required String player4,
+    required int firstServerPlayerId,
+    required bool goldenPoint,
+    int advantagesBeforeGoldenPoint = 0,
+    required int bestOfSets,
+  }) {
     _teamAName = team1;
     _teamBName = team2;
     _player1Name = player1;
     _player2Name = player2;
     _player3Name = player3;
     _player4Name = player4;
+    _firstServerPlayerId = firstServerPlayerId;
     _isGoldenPoint = goldenPoint;
+    _advantagesBeforeGoldenPoint = advantagesBeforeGoldenPoint;
     _bestOfSets = bestOfSets;
-    _updateRotationList(initialServerPlayerId: firstServerPlayerId);
+    _isSidesSwapped = false;
 
-    final Team initialTeam = (firstServerPlayerId == 1 || firstServerPlayerId == 2) ? Team.teamA : Team.teamB;
     _history.clear();
-    _currentSnapshot = PadelMatchSnapshot.initial(initialServer: initialTeam, initialRotationIndex: 0);
+    _currentSnapshot = PadelMatchSnapshot.initial(
+      initialServer: getTeamForPlayerId(firstServerPlayerId),
+      initialRotationIndex: 0,
+    );
     notifyListeners();
-
-    _ttsService.speak('Inizio partita. $_teamAName contro $_teamBName. Serve $currentServingPlayerName.');
+    _ttsService.speak('Inizio partita. \$_teamAName contro \$_teamBName. Serve \$currentServingPlayerName.');
   }
 
   void addPoint(Team scoringTeam) {
     if (isMatchOver) return;
     _history.add(_currentSnapshot);
-    // Logica completa punti
+    // Logica di calcolo FIP 2026 (allineata a padelScoringEngine.ts)
     // ...
     notifyListeners();
   }
@@ -572,19 +618,37 @@ class PadelScoreProvider extends ChangeNotifier {
   void toggleServingTeam() {
     _history.add(_currentSnapshot);
     final nextRot = _currentSnapshot.servingRotationIndex + 1;
-    _currentSnapshot = _currentSnapshot.copyWith(servingTeam: _currentSnapshot.servingTeam.opposite, servingRotationIndex: nextRot);
+    final rotation = getRotationOrder(_firstServerPlayerId);
+    final nextPlayerId = rotation[nextRot % rotation.length];
+    final newServerTeam = getTeamForPlayerId(nextPlayerId);
+    _currentSnapshot = _currentSnapshot.copyWith(
+      servingTeam: newServerTeam,
+      servingRotationIndex: nextRot,
+    );
     notifyListeners();
-    _ttsService.speak('Cambio battitore. Serve $currentServingPlayerName.');
+    _ttsService.speak('Cambio battitore. Serve \$currentServingPlayerName.');
+  }
+
+  void switchSides() {
+    _isSidesSwapped = !_isSidesSwapped;
+    notifyListeners();
+    _ttsService.speak('Cambio campo.');
   }
 
   void resetMatch() {
     _history.clear();
-    _currentSnapshot = PadelMatchSnapshot.initial();
+    _isSidesSwapped = false;
+    _currentSnapshot = PadelMatchSnapshot.initial(
+      initialServer: getTeamForPlayerId(_firstServerPlayerId),
+      initialRotationIndex: 0,
+    );
     notifyListeners();
+    _ttsService.speak('Partita resettata. Serve \$currentServingPlayerName.');
   }
 
-  void setGoldenPoint(bool val) {
-    _isGoldenPoint = val;
+  void setGoldenPoint(bool enabled, [int advantagesBefore = 0]) {
+    _isGoldenPoint = enabled;
+    _advantagesBeforeGoldenPoint = advantagesBefore;
     notifyListeners();
   }
 
@@ -592,8 +656,6 @@ class PadelScoreProvider extends ChangeNotifier {
     _ttsService.setMuted(!_ttsService.isMuted);
     notifyListeners();
   }
-
-  void announceTimeUp() => _ttsService.speak('Tempo scaduto, riprendere il gioco!');
 }
 `
   },

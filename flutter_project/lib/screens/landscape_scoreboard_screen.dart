@@ -182,11 +182,11 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                   _buildHeaderBar(context, provider, snapshot),
 
                   // Area Punteggio a 2 Macro Colonne
+                  // Area Punteggio a 2 Macro Colonne (Invertibili visivamente al cambio campo)
                   Expanded(
-                    child: Row(
-                      children: [
-                        // Colonna Sinistra: SQUADRA 1
-                        Expanded(
+                    child: Builder(
+                      builder: (context) {
+                        final teamACol = Expanded(
                           child: _buildTeamColumn(
                             context: context,
                             provider: provider,
@@ -204,16 +204,14 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                               provider.addPoint(Team.teamA);
                             },
                           ),
-                        ),
+                        );
 
-                        // Divisore Verticale ad alto contrasto
-                        Container(
+                        final divider = Container(
                           width: 3,
                           color: const Color(0xFF1E293B),
-                        ),
+                        );
 
-                        // Colonna Destra: SQUADRA 2
-                        Expanded(
+                        final teamBCol = Expanded(
                           child: _buildTeamColumn(
                             context: context,
                             provider: provider,
@@ -231,8 +229,14 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                               provider.addPoint(Team.teamB);
                             },
                           ),
-                        ),
-                      ],
+                        );
+
+                        return Row(
+                          children: provider.isSidesSwapped
+                              ? [teamBCol, divider, teamACol]
+                              : [teamACol, divider, teamBCol],
+                        );
+                      },
                     ),
                   ),
 

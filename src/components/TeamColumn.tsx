@@ -8,6 +8,8 @@ interface TeamColumnProps {
   servingPlayerName?: string;
   scoreText: string;
   gamesWon: number;
+  setsWon: number;
+  currentSetNumber?: number;
   isServing: boolean;
   accentColor: 'lime' | 'cyan';
   isTieBreak: boolean;
@@ -22,6 +24,7 @@ export const TeamColumn: React.FC<TeamColumnProps> = ({
   servingPlayerName,
   scoreText,
   gamesWon,
+  currentSetNumber = 1,
   isServing,
   accentColor,
   isTieBreak,
@@ -30,151 +33,109 @@ export const TeamColumn: React.FC<TeamColumnProps> = ({
   onAddPoint,
 }) => {
   const isLime = accentColor === 'lime';
-  const primaryColorClass = isLime ? 'text-[#CCFF00]' : 'text-[#00E5FF]';
-  const borderHighlightClass = isLime ? 'border-[#CCFF00]/40' : 'border-[#00E5FF]/40';
-  const glowShadow = isLime ? 'rgba(204, 255, 0, 0.35)' : 'rgba(0, 229, 255, 0.35)';
-
+  const teamTextColor = isLime ? 'text-[#CCFF00]' : 'text-[#00E5FF]';
+  const accentDotColor = isLime ? 'bg-[#CCFF00]' : 'bg-[#00E5FF]';
   const isAdvantage = scoreText === 'AV';
 
   return (
     <div
       onClick={onAddPoint}
-      className={`relative flex-1 flex flex-col justify-between p-4 sm:p-6 lg:p-8 cursor-pointer select-none transition-all duration-150 active:scale-[0.99] group overflow-hidden ${
-        isServing ? 'bg-slate-900/50' : 'bg-slate-950/30'
-      }`}
-      style={{
-        boxShadow: isServing
-          ? `inset 0 0 100px ${isLime ? 'rgba(204, 255, 0, 0.08)' : 'rgba(0, 229, 255, 0.08)'}`
-          : 'none',
+      role="button"
+      tabIndex={0}
+      data-team-column="true"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.repeat) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onAddPoint();
+        }
       }}
+      aria-label={`Assegna punto a ${teamName}`}
+      className="relative flex-1 flex flex-col justify-between p-2.5 sm:p-3.5 md:p-4 lg:p-5 cursor-pointer select-none transition-all duration-75 active:scale-[0.993] active:bg-zinc-900/60 hover:bg-zinc-900/20 group overflow-hidden"
     >
-      {/* WATERMARK SEMI-TRASPARENTE PALLINA DA PADEL/TENNIS SULLO SFONDO (SOLO SQUADRA AL SERVIZIO) */}
-      {isServing && (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0"
-        >
-          <svg
-            className={`w-72 h-72 sm:w-96 sm:h-96 md:w-[420px] md:h-[420px] transition-all duration-500 transform scale-105 ${
-              isLime ? 'text-[#CCFF00]' : 'text-[#00E5FF]'
-            } opacity-10 sm:opacity-[0.14]`}
-            viewBox="0 0 200 200"
-            fill="none"
+      {/* 1. INTESTAZIONE: NOME SQUADRA, GIOCATORI & BATTITORE */}
+      <div className="flex flex-col z-10 shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <h2
+            className={`text-base sm:text-lg md:text-xl lg:text-2xl font-black tracking-wide uppercase truncate ${teamTextColor}`}
           >
-            {/* Outer Tennis Ball Circle */}
-            <circle
-              cx="100"
-              cy="100"
-              r="88"
-              fill="currentColor"
-              fillOpacity="0.06"
-              stroke="currentColor"
-              strokeWidth="5"
-            />
-            {/* Classic Padel / Tennis Seam Curves */}
-            <path
-              d="M38 46 C 75 65, 88 135, 38 154"
-              stroke="currentColor"
-              strokeWidth="6"
-              strokeLinecap="round"
-            />
-            <path
-              d="M162 46 C 125 65, 112 135, 162 154"
-              stroke="currentColor"
-              strokeWidth="6"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
-      )}
+            {teamName}
+          </h2>
 
-      {/* Hover ambient highlight */}
-      <div
-        className={`absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity pointer-events-none ${
-          isLime ? 'bg-[#CCFF00]' : 'bg-[#00E5FF]'
-        }`}
-      />
-
-      {/* TOP: Team Name & Players info (No bulky "Al Servizio" buttons/badges) */}
-      <div className="flex flex-col gap-1 z-10">
-        <div className="flex items-center justify-between gap-3">
-          <div className="truncate">
-            <h2
-              className={`text-2xl sm:text-3xl lg:text-4xl font-black tracking-wider uppercase truncate ${primaryColorClass}`}
-              style={{ textShadow: `0 0 20px ${glowShadow}` }}
-            >
-              {teamName}
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-400 font-semibold truncate mt-0.5">
-              {playersText}
-            </p>
-          </div>
-        </div>
-
-        {/* Indicazione discreta ed elegante del giocatore al servizio se la squadra batte */}
-        {isServing && servingPlayerName ? (
-          <div className="flex items-center gap-2 mt-1">
+          {isServing && (
             <span
-              className={`w-2 h-2 rounded-full ${
-                isLime ? 'bg-[#CCFF00]' : 'bg-[#00E5FF]'
-              } animate-ping`}
-            />
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Battitore:{' '}
-              <span className={`font-black ${primaryColorClass}`}>
-                {servingPlayerName}
-              </span>
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                isLime
+                  ? 'bg-[#CCFF00]/15 text-[#CCFF00] border border-[#CCFF00]/30'
+                  : 'bg-[#00E5FF]/15 text-[#00E5FF] border border-[#00E5FF]/30'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${accentDotColor}`} aria-hidden="true" />
+              <span>Servizio</span>
             </span>
-          </div>
-        ) : (
-          <div className="h-4" />
-        )}
-      </div>
-
-      {/* CENTER: GIGANTIC POINT SCORE */}
-      <div className="flex-1 flex flex-col items-center justify-center my-2 sm:my-3 z-10">
-        <div className="relative flex items-center justify-center">
-          <span
-            className={`font-mono font-black tracking-tighter leading-none select-none transition-transform duration-100 ${
-              isAdvantage
-                ? 'text-amber-400 text-7xl sm:text-8xl md:text-9xl lg:text-[140px]'
-                : isTieBreak
-                ? 'text-white text-8xl sm:text-9xl md:text-[140px] lg:text-[180px]'
-                : 'text-white text-8xl sm:text-9xl md:text-[140px] lg:text-[180px]'
-            }`}
-            style={{
-              textShadow: isAdvantage
-                ? '0 0 40px rgba(251, 191, 36, 0.6)'
-                : `0 0 30px ${glowShadow}, 0 4px 12px rgba(0,0,0,0.8)`,
-            }}
-          >
-            {scoreText}
-          </span>
-
-          {/* Golden point indicator tag over the score */}
-          {isDeuce && isGoldenPoint && (
-            <div className="absolute -top-8 px-4 py-1 rounded-full bg-rose-600 text-white font-black text-xs sm:text-sm tracking-widest uppercase shadow-lg shadow-rose-600/50 animate-bounce">
-              🔥 PUNTO DECISIVO 🔥
-            </div>
           )}
         </div>
 
-        <span className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-2 group-hover:text-slate-400 transition-colors">
-          Tocca per punto
-        </span>
+        <div className="flex items-center justify-between gap-2 mt-0.5">
+          <p className="text-xs sm:text-sm text-zinc-400 font-medium truncate">
+            {playersText}
+          </p>
+          {isServing && servingPlayerName && (
+            <span className="text-[11px] text-zinc-400 font-medium truncate shrink-0 hidden sm:inline">
+              Batte: <strong className="text-zinc-200">{servingPlayerName}</strong>
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* BOTTOM: Current Games in Set */}
-      <div className="z-10">
+      {/* 2. PUNTEGGIO PRINCIPALE: RESPONSIVE ANCHE SULL'ALTEZZA (CLAMP VH) */}
+      <div className="flex-1 flex flex-col items-center justify-center my-1 z-10 min-h-0">
+        {/* Tag discreto Punto d'Oro quando si è 40-40 */}
+        {isDeuce && isGoldenPoint && (
+          <div className="mb-1 px-2.5 py-0.5 rounded border border-rose-500/40 bg-rose-500/10 text-rose-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider shrink-0">
+            Punto d'Oro
+          </div>
+        )}
+
+        <div className="flex items-center justify-center w-full">
+          <span
+            className={`font-mono font-black tabular-nums tracking-tighter leading-none select-none text-center ${
+              isAdvantage
+                ? 'text-amber-400 text-[clamp(3.5rem,20vh,8rem)]'
+                : 'text-white text-[clamp(4.25rem,27vh,11rem)]'
+            }`}
+          >
+            {scoreText}
+          </span>
+        </div>
+      </div>
+
+      {/* 3. SEZIONE GAME: ULTRA-LEGGIBILE DA DISTANZA */}
+      <div className="shrink-0 z-10 pt-1">
         <div
-          className={`flex items-center justify-between px-5 py-3 rounded-xl bg-slate-900/90 border ${borderHighlightClass} shadow-md`}
+          className={`flex items-center justify-between px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-zinc-900/90 border transition-colors ${
+            isServing
+              ? isLime
+                ? 'border-[#CCFF00]/40'
+                : 'border-[#00E5FF]/40'
+              : 'border-zinc-800'
+          }`}
         >
-          <span className="text-xs sm:text-sm font-extrabold uppercase tracking-widest text-slate-400">
-            Game nel Set:
-          </span>
-          <span className={`text-2xl sm:text-3xl font-black ${primaryColorClass}`}>
-            {gamesWon}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-zinc-400">
+              {isTieBreak ? 'Tie-Break' : `Game • Set ${currentSetNumber}`}
+            </span>
+            <span className="text-[10px] text-zinc-400 font-medium">
+              Set in corso
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-3xl sm:text-4xl md:text-5xl font-mono font-black tabular-nums text-white leading-none">
+              {gamesWon}
+            </span>
+          </div>
         </div>
       </div>
     </div>

@@ -19,17 +19,19 @@ class PadelScoreProvider extends ChangeNotifier {
   String _player3Name = 'Paolo Bianchi';
   String _player4Name = 'Marco Neri';
 
-  // Ordine di battuta a 4 giocatori (ciclo ufficiale FIP)
-  // [Giocatore Squadra 1, Giocatore Squadra 2, Compagno Sq 1, Compagno Sq 2]
-  List<String> _rotationOrder = [];
+  // Identificativo del primo battitore (1, 2, 3 o 4)
+  int _firstServerPlayerId = 1;
 
   // Impostazioni regolamento
   bool _isGoldenPoint = true;
+  int _advantagesBeforeGoldenPoint = 0; // 0 = subito punto d'oro, 1 = 1 vantaggio poi punto d'oro, 2 = Star Point FIP 2026
   int _bestOfSets = 3;
+
+  // Stato UI visivo indipendente per cambio campo (inversione lati senza alterare dati sportivi)
+  bool _isSidesSwapped = false;
 
   PadelScoreProvider({TtsService? ttsService})
       : _ttsService = ttsService ?? TtsService() {
-    _updateRotationList(initialServerPlayerId: 1);
     _loadPreferences();
   }
 
@@ -41,56 +43,41 @@ class PadelScoreProvider extends ChangeNotifier {
   String get player2Name => _player2Name;
   String get player3Name => _player3Name;
   String get player4Name => _player4Name;
+  int get firstServerPlayerId => _firstServerPlayerId;
   bool get isGoldenPoint => _isGoldenPoint;
+  int get advantagesBeforeGoldenPoint => _advantagesBeforeGoldenPoint;
   int get bestOfSets => _bestOfSets;
   bool get canUndo => _history.isNotEmpty;
   bool get isMuted => _ttsService.isMuted;
   bool get isMatchOver => _currentSnapshot.matchWinner != null;
+  bool get isSidesSwapped => _isSidesSwapped;
 
   String getTeamName(Team team) => team == Team.teamA ? _teamAName : _teamBName;
 
-  /// Restituisce il nome del giocatore attualmente al servizio
-  String get currentServingPlayerName {
-    if (_rotationOrder.isEmpty) return _player1Name;
-
-    if (_currentSnapshot.isTieBreak) {
-      // Nel Tie-Break la rotazione è:
-      // Punto 1: battitore iniziale tiebreak (rotIndex)
-      // Punti 2 & 3: rotIndex + 1
-      // Punti 4 & 5: rotIndex + 2
-      // Punti 6 & 7: rotIndex + 3...
-      final int initialIdx = _currentSnapshot.tieBreakInitialRotationIndex ?? _currentSnapshot.servingRotationIndex;
-      final int totalPoints = _currentSnapshot.tieBreakPointsA + _currentSnapshot.tieBreakPointsB;
-      final int shift = totalPoints == 0 ? 0 : ((totalPoints + 1) ~/ 2);
-      final int actualIdx = (initialIdx + shift) % _rotationOrder.length;
-      return _rotationOrder[actualIdx];
-    }
-
-    final int index = _currentSnapshot.servingRotationIndex % _rotationOrder.length;
-    return _rotationOrder[index];
+  /// Restituisce l'ID del giocatore attualmente al servizio
+  int get currentServerPlayerId {
+    return getCurrentServerPlayerId(_currentSnapshot, _firstServerPlayerId);
   }
 
-  /// Configura la rotazione dei 4 giocatori partendo da chi è stato scelto per servire per primo
-  void _updateRotationList({int initialServerPlayerId = 1}) {
-    // Definizione dei 4 giocatori
-    // Sq. 1: P1, P2
-    // Sq. 2: P3, P4
-    switch (initialServerPlayerId) {
-      case 1: // Inizia Giocatore 1 (Sq. 1)
-        _rotationOrder = [_player1Name, _player3Name, _player2Name, _player4Name];
-        break;
-      case 2: // Inizia Giocatore 2 (Sq. 1)
-        _rotationOrder = [_player2Name, _player3Name, _player1Name, _player4Name];
-        break;
-      case 3: // Inizia Giocatore 3 (Sq. 2)
-        _rotationOrder = [_player3Name, _player1Name, _player4Name, _player2Name];
-        break;
-      case 4: // Inizia Giocatore 4 (Sq. 2)
-        _rotationOrder = [_player4Name, _player1Name, _player3Name, _player2Name];
-        break;
+  /// Restituisce il nome visualizzato del battitore in base al suo ID stabile (1..4)
+  String getPlayerNameById(int playerId) {
+    switch (playerId) {
+      case 1:
+        return _player1Name.trim().isEmpty ? 'Giocatore 1' : _player1Name.trim();
+      case 2:
+        return _player2Name.trim().isEmpty ? 'Giocatore 2' : _player2Name.trim();
+      case 3:
+        return _player3Name.trim().isEmpty ? 'Giocatore 3' : _player3Name.trim();
+      case 4:
+        return _player4Name.trim().isEmpty ? 'Giocatore 4' : _player4Name.trim();
       default:
-        _rotationOrder = [_player1Name, _player3Name, _player2Name, _player4Name];
+        return 'Giocatore $playerId';
     }
+  }
+
+  /// Restituisce il nome del giocatore attualmente al servizio
+  String get currentServingPlayerName {
+    return getPlayerNameById(currentServerPlayerId);
   }
 
   /// Setup completo del match dalla schermata iniziale
@@ -103,6 +90,7 @@ class PadelScoreProvider extends ChangeNotifier {
     required String player4,
     required int firstServerPlayerId, // 1, 2, 3 o 4
     required bool goldenPoint,
+    int advantagesBeforeGoldenPoint = 0,
     required int bestOfSets,
   }) {
     _teamAName = team1.trim().isEmpty ? 'Squadra 1' : team1.trim();
@@ -111,14 +99,15 @@ class PadelScoreProvider extends ChangeNotifier {
     _player2Name = player2.trim().isEmpty ? 'Giocatore 2' : player2.trim();
     _player3Name = player3.trim().isEmpty ? 'Giocatore 3' : player3.trim();
     _player4Name = player4.trim().isEmpty ? 'Giocatore 4' : player4.trim();
+    _firstServerPlayerId = (firstServerPlayerId >= 1 && firstServerPlayerId <= 4)
+        ? firstServerPlayerId
+        : 1;
     _isGoldenPoint = goldenPoint;
+    _advantagesBeforeGoldenPoint = advantagesBeforeGoldenPoint;
     _bestOfSets = bestOfSets;
+    _isSidesSwapped = false;
 
-    _updateRotationList(initialServerPlayerId: firstServerPlayerId);
-
-    final Team initialTeam = (firstServerPlayerId == 1 || firstServerPlayerId == 2)
-        ? Team.teamA
-        : Team.teamB;
+    final Team initialTeam = getTeamForPlayerId(_firstServerPlayerId);
 
     _history.clear();
     _currentSnapshot = PadelMatchSnapshot.initial(
@@ -139,13 +128,20 @@ class PadelScoreProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       _isGoldenPoint = prefs.getBool('isGoldenPoint') ?? true;
+      _advantagesBeforeGoldenPoint = prefs.getInt('advantagesBeforeGoldenPoint') ?? 0;
       _teamAName = prefs.getString('teamAName') ?? 'Gli Smashtori';
       _teamBName = prefs.getString('teamBName') ?? 'I Timemasters';
       _player1Name = prefs.getString('player1Name') ?? 'Mario Rossi';
       _player2Name = prefs.getString('player2Name') ?? 'Luigi Verdi';
       _player3Name = prefs.getString('player3Name') ?? 'Paolo Bianchi';
       _player4Name = prefs.getString('player4Name') ?? 'Marco Neri';
-      _updateRotationList(initialServerPlayerId: 1);
+      _firstServerPlayerId = prefs.getInt('firstServerPlayerId') ?? 1;
+
+      final initialTeam = getTeamForPlayerId(_firstServerPlayerId);
+      _currentSnapshot = PadelMatchSnapshot.initial(
+        initialServer: initialTeam,
+        initialRotationIndex: 0,
+      );
       notifyListeners();
     } catch (_) {}
   }
@@ -154,17 +150,19 @@ class PadelScoreProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isGoldenPoint', _isGoldenPoint);
+      await prefs.setInt('advantagesBeforeGoldenPoint', _advantagesBeforeGoldenPoint);
       await prefs.setString('teamAName', _teamAName);
       await prefs.setString('teamBName', _teamBName);
       await prefs.setString('player1Name', _player1Name);
       await prefs.setString('player2Name', _player2Name);
       await prefs.setString('player3Name', _player3Name);
       await prefs.setString('player4Name', _player4Name);
+      await prefs.setInt('firstServerPlayerId', _firstServerPlayerId);
     } catch (_) {}
   }
 
   // ===========================================================================
-  // LOGICA DI PUNTEGGIO PADEL
+  // LOGICA DI PUNTEGGIO PADEL (ALLINEATA AL REGOLAMENTO FIP 2026 E AL MOTORE REACT)
   // ===========================================================================
 
   void addPoint(Team scoringTeam) {
@@ -182,52 +180,62 @@ class PadelScoreProvider extends ChangeNotifier {
   void _processStandardPoint(Team scoringTeam) {
     int pA = _currentSnapshot.rawPointsA;
     int pB = _currentSnapshot.rawPointsB;
+    int deuceCount = _currentSnapshot.deuceCount;
+
+    // Situazione Punto d'Oro o Star Point
+    final bool isGoldenPointNow = _isGoldenPoint &&
+        pA == 3 &&
+        pB == 3 &&
+        deuceCount >= _advantagesBeforeGoldenPoint;
 
     if (scoringTeam == Team.teamA) {
       if (pA < 3) {
         pA++;
-        _commitPointChange(pA, pB, scoringTeam);
+        _commitPointChange(pA, pB, deuceCount, scoringTeam);
       } else if (pA == 3 && pB < 3) {
         _winGame(Team.teamA);
       } else if (pA == 3 && pB == 3) {
-        if (_isGoldenPoint) {
+        if (isGoldenPointNow) {
           _winGame(Team.teamA);
         } else {
-          pA = 4; // Vantaggio Sq A
-          _commitPointChange(pA, pB, scoringTeam);
+          pA = 4; // Vantaggio Squadra A
+          _commitPointChange(pA, pB, deuceCount, scoringTeam);
         }
       } else if (pA == 4 && pB == 3) {
         _winGame(Team.teamA);
       } else if (pA == 3 && pB == 4) {
-        pB = 3; // Torna a 40 pari
-        _commitPointChange(pA, pB, scoringTeam);
+        pB = 3; // Ritorno a 40 pari
+        deuceCount++;
+        _commitPointChange(pA, pB, deuceCount, scoringTeam);
       }
     } else {
       if (pB < 3) {
         pB++;
-        _commitPointChange(pA, pB, scoringTeam);
+        _commitPointChange(pA, pB, deuceCount, scoringTeam);
       } else if (pB == 3 && pA < 3) {
         _winGame(Team.teamB);
       } else if (pA == 3 && pB == 3) {
-        if (_isGoldenPoint) {
+        if (isGoldenPointNow) {
           _winGame(Team.teamB);
         } else {
-          pB = 4; // Vantaggio Sq B
-          _commitPointChange(pA, pB, scoringTeam);
+          pB = 4; // Vantaggio Squadra B
+          _commitPointChange(pA, pB, deuceCount, scoringTeam);
         }
       } else if (pB == 4 && pA == 3) {
         _winGame(Team.teamB);
       } else if (pB == 3 && pA == 4) {
-        pA = 3;
-        _commitPointChange(pA, pB, scoringTeam);
+        pA = 3; // Ritorno a 40 pari
+        deuceCount++;
+        _commitPointChange(pA, pB, deuceCount, scoringTeam);
       }
     }
   }
 
-  void _commitPointChange(int newPA, int newPB, Team scorer) {
+  void _commitPointChange(int newPA, int newPB, int newDeuceCount, Team scorer) {
     _currentSnapshot = _currentSnapshot.copyWith(
       rawPointsA: newPA,
       rawPointsB: newPB,
+      deuceCount: newDeuceCount,
       lastEventMessage: 'Punto ${getTeamName(scorer)}',
     );
     notifyListeners();
@@ -244,15 +252,17 @@ class PadelScoreProvider extends ChangeNotifier {
       gB++;
     }
 
-    // Avanza rigorosamente di 1 posizione nella rotazione a 4 giocatori!
+    final rotation = getRotationOrder(_firstServerPlayerId);
     final int nextRotationIndex = _currentSnapshot.servingRotationIndex + 1;
-    final Team nextServerTeam = _currentSnapshot.servingTeam.opposite;
+    final int nextServerId = rotation[nextRotationIndex % rotation.length];
+    final Team nextServerTeam = getTeamForPlayerId(nextServerId);
 
     // Sul 6-6 scatta il Tie-Break
     if (gA == 6 && gB == 6) {
       _currentSnapshot = _currentSnapshot.copyWith(
         rawPointsA: 0,
         rawPointsB: 0,
+        deuceCount: 0,
         currentGamesA: 6,
         currentGamesB: 6,
         isTieBreak: true,
@@ -268,16 +278,17 @@ class PadelScoreProvider extends ChangeNotifier {
       return;
     }
 
-    // Controllo vittoria set (6 con 2 di margine)
-    bool setWonA = (gA >= 6 && (gA - gB) >= 2);
-    bool setWonB = (gB >= 6 && (gB - gA) >= 2);
+    // Controllo vittoria set (6 con 2 di margine, oppure 7-5)
+    final bool setWonA = (gA >= 6 && (gA - gB) >= 2);
+    final bool setWonB = (gB >= 6 && (gB - gA) >= 2);
 
     if (setWonA || setWonB) {
-      _winSet(setWonA ? Team.teamA : Team.teamB, gA, gB, null, null, nextRotationIndex);
+      _winSet(setWonA ? Team.teamA : Team.teamB, gA, gB, null, null);
     } else {
       _currentSnapshot = _currentSnapshot.copyWith(
         rawPointsA: 0,
         rawPointsB: 0,
+        deuceCount: 0,
         currentGamesA: gA,
         currentGamesB: gB,
         servingTeam: nextServerTeam,
@@ -286,8 +297,6 @@ class PadelScoreProvider extends ChangeNotifier {
       );
       notifyListeners();
 
-      // Annuncio fluido arbitrale:
-      // "Game per la squadra Gli Smashtori. Tre a due. Serve Mario Rossi."
       _ttsService.speak(
         'Game per la squadra ${getTeamName(winner)}. $gA a $gB. Serve $currentServingPlayerName.',
       );
@@ -307,23 +316,20 @@ class PadelScoreProvider extends ChangeNotifier {
     final int totalPoints = tbA + tbB;
 
     // Controllo vittoria tie-break: 7 punti con 2 di scarto
-    bool tbWonA = (tbA >= 7 && (tbA - tbB) >= 2);
-    bool tbWonB = (tbB >= 7 && (tbB - tbA) >= 2);
+    final bool tbWonA = (tbA >= 7 && (tbA - tbB) >= 2);
+    final bool tbWonB = (tbB >= 7 && (tbB - tbA) >= 2);
 
     if (tbWonA || tbWonB) {
       final Team setWinner = tbWonA ? Team.teamA : Team.teamB;
-      final int nextRot = (_currentSnapshot.tieBreakInitialRotationIndex ?? _currentSnapshot.servingRotationIndex) + 1;
-      _winSet(setWinner, tbWonA ? 7 : 6, tbWonB ? 7 : 6, tbA, tbB, nextRot);
+      _winSet(setWinner, tbWonA ? 7 : 6, tbWonB ? 7 : 6, tbA, tbB);
     } else {
-      // Rotazione battitore durante tiebreak (1-2-2-2...)
-      final int initialIdx = _currentSnapshot.tieBreakInitialRotationIndex ?? _currentSnapshot.servingRotationIndex;
+      // Rotazione battitore durante tiebreak con sequenza 1-2-2-2...
+      final rotation = getRotationOrder(_firstServerPlayerId);
+      final int initialIdx =
+          _currentSnapshot.tieBreakInitialRotationIndex ?? _currentSnapshot.servingRotationIndex;
       final int shift = ((totalPoints + 1) ~/ 2);
-      final int nextRot = (initialIdx + shift);
-
-      // Determina la squadra del battitore
-      final String nextPlayer = _rotationOrder[nextRot % _rotationOrder.length];
-      final bool isTeamAPlayer = (nextPlayer == _player1Name || nextPlayer == _player2Name);
-      final Team nextTeam = isTeamAPlayer ? Team.teamA : Team.teamB;
+      final int nextPlayerId = rotation[(initialIdx + shift) % rotation.length];
+      final Team nextTeam = getTeamForPlayerId(nextPlayerId);
 
       _currentSnapshot = _currentSnapshot.copyWith(
         tieBreakPointsA: tbA,
@@ -332,13 +338,11 @@ class PadelScoreProvider extends ChangeNotifier {
         lastEventMessage: 'Tie-break $tbA - $tbB',
       );
       notifyListeners();
-
-      // Annuncio Tie-Break: "Tre a due. Serve Marco Neri."
       _ttsService.speak('$tbA a $tbB. Serve $currentServingPlayerName.');
     }
   }
 
-  void _winSet(Team setWinner, int gA, int gB, int? tbA, int? tbB, int nextRotIndex) {
+  void _winSet(Team setWinner, int gA, int gB, int? tbA, int? tbB) {
     final completedSet = SetScore(
       gamesA: gA,
       gamesB: gB,
@@ -358,11 +362,29 @@ class PadelScoreProvider extends ChangeNotifier {
     if (setsWonA >= setsToWin) matchWinner = Team.teamA;
     if (setsWonB >= setsToWin) matchWinner = Team.teamB;
 
-    final Team nextSetServerTeam = _currentSnapshot.initialSetServer.opposite;
+    final rotation = getRotationOrder(_firstServerPlayerId);
+    int nextRotIndex;
+
+    if (_currentSnapshot.isTieBreak) {
+      // Regola Ufficiale FIP Tie-Break:
+      // La coppia che ha iniziato a servire nel tie-break riceverà nel primo game del set successivo.
+      // Il servizio del primo game del nuovo set tocca alla squadra opposta che segue nella rotazione.
+      final int tbStartRot =
+          _currentSnapshot.tieBreakInitialRotationIndex ?? _currentSnapshot.servingRotationIndex;
+      nextRotIndex = tbStartRot + 1;
+    } else {
+      // Regola Ufficiale FIP Set standard:
+      // Continua la naturale alternanza di servizio in base ai game totali giocati.
+      nextRotIndex = _currentSnapshot.servingRotationIndex + 1;
+    }
+
+    final int nextServerPlayerId = rotation[nextRotIndex % rotation.length];
+    final Team nextSetServerTeam = getTeamForPlayerId(nextServerPlayerId);
 
     _currentSnapshot = _currentSnapshot.copyWith(
       rawPointsA: 0,
       rawPointsB: 0,
+      deuceCount: 0,
       currentGamesA: 0,
       currentGamesB: 0,
       completedSets: updatedSets,
@@ -380,7 +402,7 @@ class PadelScoreProvider extends ChangeNotifier {
     );
     notifyListeners();
 
-    String setOrdinal = setNumber == 1 ? 'primo' : (setNumber == 2 ? 'secondo' : 'terzo');
+    final String setOrdinal = setNumber == 1 ? 'primo' : (setNumber == 2 ? 'secondo' : (setNumber == 3 ? 'terzo' : (setNumber == 4 ? 'quarto' : 'quinto')));
     if (matchWinner != null) {
       _ttsService.speak(
         'Game, set e partita per la squadra ${getTeamName(matchWinner)}! Risultato finale: $setsWonA set a $setsWonB.',
@@ -396,6 +418,7 @@ class PadelScoreProvider extends ChangeNotifier {
   void _announceRefereePointScore() {
     int pA = _currentSnapshot.rawPointsA;
     int pB = _currentSnapshot.rawPointsB;
+    int deuceCount = _currentSnapshot.deuceCount;
 
     // CASI DI PARITÀ
     if (pA == pB) {
@@ -406,7 +429,7 @@ class PadelScoreProvider extends ChangeNotifier {
       } else if (pA == 2) {
         _ttsService.speak('Trenta pari.');
       } else if (pA == 3) {
-        if (_isGoldenPoint) {
+        if (_isGoldenPoint && deuceCount >= _advantagesBeforeGoldenPoint) {
           _ttsService.speak('Quaranta pari. Punto d\'oro.');
         } else {
           _ttsService.speak('Quaranta pari. Parità.');
@@ -425,7 +448,7 @@ class PadelScoreProvider extends ChangeNotifier {
       return;
     }
 
-    // PUNTI NORMALI (es. "Quindici a zero. Serve Mario Rossi.")
+    // PUNTI NORMALI
     final String labelA = _pointToItalian(pA);
     final String labelB = _pointToItalian(pB);
     final String server = currentServingPlayerName;
@@ -461,8 +484,10 @@ class PadelScoreProvider extends ChangeNotifier {
 
   void resetMatch() {
     _history.clear();
+    _isSidesSwapped = false;
+    final initialTeam = getTeamForPlayerId(_firstServerPlayerId);
     _currentSnapshot = PadelMatchSnapshot.initial(
-      initialServer: Team.teamA,
+      initialServer: initialTeam,
       initialRotationIndex: 0,
     );
     notifyListeners();
@@ -472,7 +497,9 @@ class PadelScoreProvider extends ChangeNotifier {
   void toggleServingTeam() {
     _history.add(_currentSnapshot);
     final nextRot = _currentSnapshot.servingRotationIndex + 1;
-    final newServerTeam = _currentSnapshot.servingTeam.opposite;
+    final rotation = getRotationOrder(_firstServerPlayerId);
+    final nextPlayerId = rotation[nextRot % rotation.length];
+    final newServerTeam = getTeamForPlayerId(nextPlayerId);
     _currentSnapshot = _currentSnapshot.copyWith(
       servingTeam: newServerTeam,
       servingRotationIndex: nextRot,
@@ -481,41 +508,17 @@ class PadelScoreProvider extends ChangeNotifier {
     _ttsService.speak('Cambio battitore. Serve $currentServingPlayerName.');
   }
 
+  /// Inverte esclusivamente la visualizzazione dei lati del tabellone.
+  /// Non altera in alcun modo punteggio, game, set, battitore o storico sportivo.
   void switchSides() {
-    final tempName = _teamAName;
-    _teamAName = _teamBName;
-    _teamBName = tempName;
-
-    final prev = _currentSnapshot;
-    _currentSnapshot = PadelMatchSnapshot(
-      rawPointsA: prev.rawPointsB,
-      rawPointsB: prev.rawPointsA,
-      currentGamesA: prev.currentGamesB,
-      currentGamesB: prev.currentGamesA,
-      completedSets: prev.completedSets.map((s) => SetScore(
-        gamesA: s.gamesB,
-        gamesB: s.gamesA,
-        tieBreakPointsA: s.tieBreakPointsB,
-        tieBreakPointsB: s.tieBreakPointsA,
-        isCompleted: s.isCompleted,
-        winner: s.winner == null ? null : (s.winner == Team.teamA ? Team.teamB : Team.teamA),
-      )).toList(),
-      servingTeam: prev.servingTeam.opposite,
-      servingRotationIndex: prev.servingRotationIndex,
-      initialSetServer: prev.initialSetServer.opposite,
-      isTieBreak: prev.isTieBreak,
-      tieBreakPointsA: prev.tieBreakPointsB,
-      tieBreakPointsB: prev.tieBreakPointsA,
-      tieBreakInitialRotationIndex: prev.tieBreakInitialRotationIndex,
-      matchWinner: prev.matchWinner == null ? null : (prev.matchWinner == Team.teamA ? Team.teamB : Team.teamA),
-      lastEventMessage: 'Cambio campo',
-    );
+    _isSidesSwapped = !_isSidesSwapped;
     notifyListeners();
     _ttsService.speak('Cambio campo.');
   }
 
-  void setGoldenPoint(bool enabled) {
+  void setGoldenPoint(bool enabled, [int advantagesBefore = 0]) {
     _isGoldenPoint = enabled;
+    _advantagesBeforeGoldenPoint = advantagesBefore;
     _savePreferences();
     notifyListeners();
     _ttsService.speak(enabled ? 'Punto d\'oro attivato.' : 'Vantaggi tradizionali attivati.');

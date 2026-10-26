@@ -7,6 +7,53 @@ enum Team {
   Team get opposite => this == Team.teamA ? Team.teamB : Team.teamA;
 }
 
+typedef PlayerId = int; // 1, 2, 3, o 4
+
+/// Associa stabilmente l'ID giocatore alla squadra di appartenenza (Regolamento FIP).
+/// Giocatore 1 e 2 -> Squadra A
+/// Giocatore 3 e 4 -> Squadra B
+Team getTeamForPlayerId(int playerId) {
+  return (playerId == 1 || playerId == 2) ? Team.teamA : Team.teamB;
+}
+
+/// Restituisce la sequenza ciclica di rotazione dei 4 battitori (ID stabili)
+/// in base al primo battitore scelto (identica al motore TypeScript).
+List<int> getRotationOrder(int firstServerPlayerId) {
+  switch (firstServerPlayerId) {
+    case 1:
+      return const [1, 3, 2, 4];
+    case 2:
+      return const [2, 3, 1, 4];
+    case 3:
+      return const [3, 1, 4, 2];
+    case 4:
+      return const [4, 1, 3, 2];
+    default:
+      return const [1, 3, 2, 4];
+  }
+}
+
+/// Determina l'ID del giocatore attualmente al servizio.
+/// Nel Tie-break la sequenza è 1-2-2-2...
+/// Nei game ordinari è ciclica sulla rotazione dei 4 battitori.
+int getCurrentServerPlayerId(PadelMatchSnapshot snapshot, int firstServerPlayerId) {
+  final rotation = getRotationOrder(firstServerPlayerId);
+  if (snapshot.isTieBreak) {
+    final int initialIdx =
+        snapshot.tieBreakInitialRotationIndex ?? snapshot.servingRotationIndex;
+    final int totalPoints = snapshot.tieBreakPointsA + snapshot.tieBreakPointsB;
+    final int shift = totalPoints == 0 ? 0 : ((totalPoints + 1) ~/ 2);
+    return rotation[(initialIdx + shift) % rotation.length];
+  }
+  return rotation[snapshot.servingRotationIndex % rotation.length];
+}
+
+/// Determina la squadra al servizio direttamente dall'ID del battitore attivo.
+Team getCurrentServingTeam(PadelMatchSnapshot snapshot, int firstServerPlayerId) {
+  final playerId = getCurrentServerPlayerId(snapshot, firstServerPlayerId);
+  return getTeamForPlayerId(playerId);
+}
+
 /// Rappresenta il punteggio di un singolo set completato o in corso
 @immutable
 class SetScore {
@@ -60,6 +107,9 @@ class PadelMatchSnapshot {
   final int rawPointsA;
   final int rawPointsB;
 
+  /// Conteggio ritorni a 40-40 nel game corrente (per Star Point FIP 2026)
+  final int deuceCount;
+
   /// Game vinti nel set corrente
   final int currentGamesA;
   final int currentGamesB;
@@ -70,15 +120,10 @@ class PadelMatchSnapshot {
   /// Squadra attualmente al servizio
   final Team servingTeam;
 
-  /// Indice nella rotazione dei 4 giocatori (0..3 o cumulativo)
-  /// Regola ufficiale Padel:
-  /// Turno 0: Giocatore 1 (Sq. 1)
-  /// Turno 1: Giocatore 3 (Sq. 2)
-  /// Turno 2: Giocatore 2 (Sq. 1)
-  /// Turno 3: Giocatore 4 (Sq. 2)
+  /// Indice nella rotazione ciclica dei 4 battitori (0..3 cumulativo)
   final int servingRotationIndex;
 
-  /// Chi ha iniziato a servire nel set corrente (per alternanza set)
+  /// Chi ha iniziato a servire nel set corrente
   final Team initialSetServer;
 
   /// Flag se siamo in Tie-Break
@@ -100,6 +145,7 @@ class PadelMatchSnapshot {
   const PadelMatchSnapshot({
     required this.rawPointsA,
     required this.rawPointsB,
+    this.deuceCount = 0,
     required this.currentGamesA,
     required this.currentGamesB,
     required this.completedSets,
@@ -122,6 +168,7 @@ class PadelMatchSnapshot {
     return PadelMatchSnapshot(
       rawPointsA: 0,
       rawPointsB: 0,
+      deuceCount: 0,
       currentGamesA: 0,
       currentGamesB: 0,
       completedSets: const [],
@@ -165,10 +212,13 @@ class PadelMatchSnapshot {
     }
   }
 
-  /// Verifica se è punto d'oro (40-40 con regola Punto d'Oro)
-  bool isGoldenPointSituation(bool goldenPointEnabled) {
+  /// Verifica se è punto d'oro (40-40 con regola Punto d'Oro o Star Point)
+  bool isGoldenPointSituation(bool goldenPointEnabled, [int advantagesBeforeGoldenPoint = 0]) {
     if (isTieBreak) return false;
-    return goldenPointEnabled && rawPointsA == 3 && rawPointsB == 3;
+    return goldenPointEnabled &&
+        rawPointsA == 3 &&
+        rawPointsB == 3 &&
+        deuceCount >= advantagesBeforeGoldenPoint;
   }
 
   /// Verifica parità 40-40 (Deuce)
@@ -178,6 +228,7 @@ class PadelMatchSnapshot {
   PadelMatchSnapshot copyWith({
     int? rawPointsA,
     int? rawPointsB,
+    int? deuceCount,
     int? currentGamesA,
     int? currentGamesB,
     List<SetScore>? completedSets,
@@ -194,6 +245,7 @@ class PadelMatchSnapshot {
     return PadelMatchSnapshot(
       rawPointsA: rawPointsA ?? this.rawPointsA,
       rawPointsB: rawPointsB ?? this.rawPointsB,
+      deuceCount: deuceCount ?? this.deuceCount,
       currentGamesA: currentGamesA ?? this.currentGamesA,
       currentGamesB: currentGamesB ?? this.currentGamesB,
       completedSets: completedSets ?? List.unmodifiable(this.completedSets),
