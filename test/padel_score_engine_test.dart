@@ -127,22 +127,30 @@ void main() {
       // Game 1: P1 (Team A)
       expect(provider.currentServerPlayerId, equals(1));
       expect(provider.snapshot.servingTeam, equals(Team.teamA));
-      for (int i = 0; i < 4; i++) provider.addPoint(Team.teamA);
+      for (int i = 0; i < 4; i++) {
+        provider.addPoint(Team.teamA);
+      }
 
       // Game 2: P3 (Team B)
       expect(provider.currentServerPlayerId, equals(3));
       expect(provider.snapshot.servingTeam, equals(Team.teamB));
-      for (int i = 0; i < 4; i++) provider.addPoint(Team.teamB);
+      for (int i = 0; i < 4; i++) {
+        provider.addPoint(Team.teamB);
+      }
 
       // Game 3: P2 (Team A)
       expect(provider.currentServerPlayerId, equals(2));
       expect(provider.snapshot.servingTeam, equals(Team.teamA));
-      for (int i = 0; i < 4; i++) provider.addPoint(Team.teamA);
+      for (int i = 0; i < 4; i++) {
+        provider.addPoint(Team.teamA);
+      }
 
       // Game 4: P4 (Team B)
       expect(provider.currentServerPlayerId, equals(4));
       expect(provider.snapshot.servingTeam, equals(Team.teamB));
-      for (int i = 0; i < 4; i++) provider.addPoint(Team.teamB);
+      for (int i = 0; i < 4; i++) {
+        provider.addPoint(Team.teamB);
+      }
 
       // Game 5: Ritorna ciclicamente a P1 (Team A)
       expect(provider.currentServerPlayerId, equals(1));
@@ -174,12 +182,20 @@ void main() {
       final pA = createTestProvider(firstServerPlayerId: 1);
       // Gioca 10 game: 6 a Team A, 4 a Team B
       for (int g = 0; g < 4; g++) {
-        for (int p = 0; p < 4; p++) pA.addPoint(Team.teamA);
-        for (int p = 0; p < 4; p++) pA.addPoint(Team.teamB);
+        for (int p = 0; p < 4; p++) {
+          pA.addPoint(Team.teamA);
+        }
+        for (int p = 0; p < 4; p++) {
+          pA.addPoint(Team.teamB);
+        }
       }
       // Punteggio 4-4 (8 game). Vinci altri 2 game per Team A -> 6-4
-      for (int p = 0; p < 4; p++) pA.addPoint(Team.teamA); // 5-4
-      for (int p = 0; p < 4; p++) pA.addPoint(Team.teamA); // 6-4 Set 1 concluso!
+      for (int p = 0; p < 4; p++) {
+        pA.addPoint(Team.teamA);
+      } // 5-4
+      for (int p = 0; p < 4; p++) {
+        pA.addPoint(Team.teamA);
+      } // 6-4 Set 1 concluso!
 
       expect(pA.snapshot.completedSets.length, equals(1));
       expect(pA.snapshot.completedSets[0].gamesA, equals(6));
@@ -191,13 +207,23 @@ void main() {
       // Caso B: 6-3 (9 game totali)
       final pB = createTestProvider(firstServerPlayerId: 1);
       for (int g = 0; g < 3; g++) {
-        for (int p = 0; p < 4; p++) pB.addPoint(Team.teamA);
-        for (int p = 0; p < 4; p++) pB.addPoint(Team.teamB);
+        for (int p = 0; p < 4; p++) {
+          pB.addPoint(Team.teamA);
+        }
+        for (int p = 0; p < 4; p++) {
+          pB.addPoint(Team.teamB);
+        }
       }
       // 3-3 (6 game). Vinci altri 3 game con Team A -> 6-3
-      for (int p = 0; p < 4; p++) pB.addPoint(Team.teamA); // 4-3
-      for (int p = 0; p < 4; p++) pB.addPoint(Team.teamA); // 5-3
-      for (int p = 0; p < 4; p++) pB.addPoint(Team.teamA); // 6-3 Set 1 concluso!
+      for (int p = 0; p < 4; p++) {
+        pB.addPoint(Team.teamA);
+      } // 4-3
+      for (int p = 0; p < 4; p++) {
+        pB.addPoint(Team.teamA);
+      } // 5-3
+      for (int p = 0; p < 4; p++) {
+        pB.addPoint(Team.teamA);
+      } // 6-3 Set 1 concluso!
 
       expect(pB.snapshot.completedSets.length, equals(1));
       expect(pB.snapshot.completedSets[0].gamesA, equals(6));
@@ -212,8 +238,12 @@ void main() {
       final provider = createTestProvider(firstServerPlayerId: 1);
       // Arriva a 6-6 (12 game)
       for (int g = 0; g < 6; g++) {
-        for (int p = 0; p < 4; p++) provider.addPoint(Team.teamA);
-        for (int p = 0; p < 4; p++) provider.addPoint(Team.teamB);
+        for (int p = 0; p < 4; p++) {
+          provider.addPoint(Team.teamA);
+        }
+        for (int p = 0; p < 4; p++) {
+          provider.addPoint(Team.teamB);
+        }
       }
 
       expect(provider.snapshot.currentGamesA, equals(6));
@@ -244,8 +274,12 @@ void main() {
       final provider = createTestProvider(firstServerPlayerId: 1);
       // Arriva a 6-6
       for (int g = 0; g < 6; g++) {
-        for (int p = 0; p < 4; p++) provider.addPoint(Team.teamA);
-        for (int p = 0; p < 4; p++) provider.addPoint(Team.teamB);
+        for (int p = 0; p < 4; p++) {
+          provider.addPoint(Team.teamA);
+        }
+        for (int p = 0; p < 4; p++) {
+          provider.addPoint(Team.teamB);
+        }
       }
       expect(provider.snapshot.isTieBreak, isTrue);
       // Tie-break iniziato da Team A (P1)
@@ -270,8 +304,12 @@ void main() {
       final provider = createTestProvider(goldenPoint: false);
 
       // Arriva a 40-40
-      for (int i = 0; i < 3; i++) provider.addPoint(Team.teamA);
-      for (int i = 0; i < 3; i++) provider.addPoint(Team.teamB);
+      for (int i = 0; i < 3; i++) {
+        provider.addPoint(Team.teamA);
+      }
+      for (int i = 0; i < 3; i++) {
+        provider.addPoint(Team.teamB);
+      }
       expect(provider.snapshot.isDeuce, isTrue);
       expect(provider.snapshot.displayPointA, equals('40'));
       expect(provider.snapshot.displayPointB, equals('40'));
@@ -298,8 +336,14 @@ void main() {
     test('9. Punto d\'oro immediato al primo 40-40', () {
       final provider = createTestProvider(goldenPoint: true, advantagesBeforeGoldenPoint: 0);
 
-      for (int i = 0; i < 3; i++) provider.addPoint(Team.teamA);
-      for (int i = 0; i < 3; i++) provider.addPoint(Team.teamB);
+      for (int i = 0; i < 3; i++) {
+
+        provider.addPoint(Team.teamA);
+
+      }
+      for (int i = 0; i < 3; i++) {
+        provider.addPoint(Team.teamB);
+      }
       expect(provider.snapshot.isDeuce, isTrue);
       expect(provider.snapshot.isGoldenPointSituation(true, 0), isTrue);
 
@@ -313,8 +357,12 @@ void main() {
       final provider = createTestProvider(goldenPoint: true, advantagesBeforeGoldenPoint: 2);
 
       // 1° Deuce (deuceCount = 0)
-      for (int i = 0; i < 3; i++) provider.addPoint(Team.teamA);
-      for (int i = 0; i < 3; i++) provider.addPoint(Team.teamB);
+      for (int i = 0; i < 3; i++) {
+        provider.addPoint(Team.teamA);
+      }
+      for (int i = 0; i < 3; i++) {
+        provider.addPoint(Team.teamB);
+      }
       expect(provider.snapshot.deuceCount, equals(0));
 
       // 1° Vantaggio A poi contro-punto B -> 2° Deuce (deuceCount = 1)
@@ -345,7 +393,9 @@ void main() {
       expect(provider.snapshot.displayPointA, equals('0'));
 
       // Vinci un game
-      for (int i = 0; i < 4; i++) provider.addPoint(Team.teamA);
+      for (int i = 0; i < 4; i++) {
+        provider.addPoint(Team.teamA);
+      }
       expect(provider.snapshot.currentGamesA, equals(1));
       expect(provider.currentServerPlayerId, equals(3));
 
@@ -406,7 +456,9 @@ void main() {
 
       // Vinci 6 game per Team A -> Vittoria match
       for (int g = 0; g < 6; g++) {
-        for (int p = 0; p < 4; p++) provider.addPoint(Team.teamA);
+        for (int p = 0; p < 4; p++) {
+          provider.addPoint(Team.teamA);
+        }
       }
 
       expect(provider.isMatchOver, isTrue);

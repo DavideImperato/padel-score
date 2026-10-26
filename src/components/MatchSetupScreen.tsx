@@ -31,6 +31,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
     currentSettings.advantagesBeforeGoldenPoint ?? 0
   );
   const [bestOfSets, setBestOfSets] = useState(currentSettings.bestOfSets);
+  const [gamesPerSet, setGamesPerSet] = useState<4 | 6>(currentSettings.gamesPerSet === 4 ? 4 : 6);
 
   const player1Display = p1.trim() || 'Giocatore 1';
   const player2Display = p2.trim() || 'Giocatore 2';
@@ -50,6 +51,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
       isGoldenPoint,
       advantagesBeforeGoldenPoint,
       bestOfSets,
+      gamesPerSet,
       ttsSpeed: currentSettings.ttsSpeed,
       ttsVolume: currentSettings.ttsVolume,
       isMuted: currentSettings.isMuted,
@@ -352,6 +354,22 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-black uppercase text-white">Durata del set</div>
+                <p className="text-[11px] text-slate-400">Set breve: 4 game con 2 di vantaggio, tie-break sul 4-4.</p>
+              </div>
+              <div className="flex gap-2">
+                {([6, 4] as const).map(target => (
+                  <button key={target} type="button" onClick={() => setGamesPerSet(target)}
+                    aria-pressed={gamesPerSet === target}
+                    className={`px-3 py-2 rounded-lg text-xs font-black ${gamesPerSet === target ? 'bg-[#CCFF00] text-slate-950' : 'bg-slate-800 text-white'}`}>
+                    {target === 6 ? 'Standard (6)' : 'Breve (4)'}
+                  </button>
+                ))}
               </div>
             </div>
 

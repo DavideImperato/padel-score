@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS: MatchSettings = {
   isGoldenPoint: true,
   advantagesBeforeGoldenPoint: 0,
   bestOfSets: 3,
+  gamesPerSet: 6,
   ttsSpeed: 0.95, // Cadenza arbitrale naturale
   ttsVolume: 1.0,
   isMuted: false,
@@ -58,6 +59,7 @@ export default function App() {
           isVoiceMuted: parsed.isVoiceMuted ?? false,
           isSfxMuted: parsed.isSfxMuted ?? false,
           advantagesBeforeGoldenPoint: parsed.advantagesBeforeGoldenPoint ?? 0,
+          gamesPerSet: parsed.gamesPerSet === 4 ? 4 : 6,
         };
       }
     } catch {}

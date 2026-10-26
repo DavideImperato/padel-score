@@ -179,11 +179,12 @@ export function processPoint(
     // Vittoria del Tie-Break
     if (wonA || wonB) {
       const setWinner: Team = wonA ? 'teamA' : 'teamB';
+      const tieBreakGameLimit = settings.gamesPerSet === 4 ? 4 : 6;
       return processSetWin(
         current,
         setWinner,
-        wonA ? 7 : 6,
-        wonB ? 7 : 6,
+        wonA ? tieBreakGameLimit + 1 : tieBreakGameLimit,
+        wonB ? tieBreakGameLimit + 1 : tieBreakGameLimit,
         settings,
         tbA,
         tbB
@@ -344,15 +345,16 @@ function processGameWin(
   const nextServerPlayerId = rotation[nextRotIndex % rotation.length];
   const nextServerTeam = getTeamForPlayerId(nextServerPlayerId);
 
-  // Scatto Tie-Break sul 6-6
-  if (gA === 6 && gB === 6) {
+  const gamesTarget = settings.gamesPerSet === 4 ? 4 : 6;
+  // Il mini-set prevede tie-break sul 4-4, il set normale sul 6-6.
+  if (gA === gamesTarget && gB === gamesTarget) {
     const nextSnapshot: PadelMatchSnapshot = {
       ...current,
       rawPointsA: 0,
       rawPointsB: 0,
       deuceCount: 0,
-      currentGamesA: 6,
-      currentGamesB: 6,
+      currentGamesA: gamesTarget,
+      currentGamesB: gamesTarget,
       isTieBreak: true,
       tieBreakPointsA: 0,
       tieBreakPointsB: 0,
@@ -368,8 +370,8 @@ function processGameWin(
         type: 'tieBreakStarted',
         scoringTeam: winner,
         winner,
-        finalGamesA: 6,
-        finalGamesB: 6,
+        finalGamesA: gamesTarget,
+        finalGamesB: gamesTarget,
         serverPlayerId: nextServerPlayerId,
         servingTeam: nextServerTeam,
         rawPointsA: 0,
@@ -378,9 +380,9 @@ function processGameWin(
     };
   }
 
-  // Controllo vittoria set (6 con 2 di scarto, oppure 7-5)
-  const wonA = gA >= 6 && gA - gB >= 2;
-  const wonB = gB >= 6 && gB - gA >= 2;
+  // Set normale: 6-4 / 7-5; mini-set: 4-2 / 5-3.
+  const wonA = gA >= gamesTarget && gA - gB >= 2;
+  const wonB = gB >= gamesTarget && gB - gA >= 2;
 
   if (wonA || wonB) {
     return processSetWin(current, wonA ? 'teamA' : 'teamB', gA, gB, settings);

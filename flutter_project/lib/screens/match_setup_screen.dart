@@ -25,6 +25,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   // 0 = vantaggi tradizionali, 1 = punto d'oro, 2 = Star Point.
   int _scoringMode = 1;
   int _bestOfSets = 3;
+  bool _shortSets = false;
 
   @override
   void initState() {
@@ -41,6 +42,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
         ? 0
         : (provider.advantagesBeforeGoldenPoint >= 2 ? 2 : 1);
     _bestOfSets = provider.bestOfSets;
+    _shortSets = provider.shortSets;
   }
 
   @override
@@ -71,6 +73,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       goldenPoint: _scoringMode != 0,
       advantagesBeforeGoldenPoint: _scoringMode == 2 ? 2 : 0,
       bestOfSets: _bestOfSets,
+      shortSets: _shortSets,
     );
 
     // Naviga al tabellone orizzontale
@@ -462,6 +465,20 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                     ? 'Sul primo 40-40 il punto successivo decide il game.'
                     : 'Dopo due cicli di vantaggio e ritorno alla parità, il punto successivo decide il game.',
             style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+          ),
+          const Divider(color: Color(0xFF1E293B)),
+          // SwitchListTile contiene un ListTile: serve un Material locale
+          // affinché feedback e splash non siano nascosti dal Container colorato.
+          Material(
+            type: MaterialType.transparency,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Set brevi (4 game)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Vittoria con 2 game di scarto; tie-break sul 4-4.', style: TextStyle(color: Color(0xFF94A3B8))),
+              value: _shortSets,
+              activeTrackColor: const Color(0xFFCCFF00),
+              onChanged: (value) => setState(() => _shortSets = value),
+            ),
           ),
           const Divider(color: Color(0xFF1E293B)),
           // Formato Set

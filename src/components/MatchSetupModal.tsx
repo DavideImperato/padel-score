@@ -28,6 +28,7 @@ export const MatchSetupModal: React.FC<MatchSetupModalProps> = ({
   const [firstServerId, setFirstServerId] = useState(currentSettings.firstServerPlayerId || 1);
   const [isGoldenPoint, setIsGoldenPoint] = useState(currentSettings.isGoldenPoint);
   const [bestOfSets, setBestOfSets] = useState(currentSettings.bestOfSets);
+  const [gamesPerSet, setGamesPerSet] = useState<4 | 6>(currentSettings.gamesPerSet === 4 ? 4 : 6);
 
   if (!isOpen) return null;
 
@@ -49,6 +50,7 @@ export const MatchSetupModal: React.FC<MatchSetupModalProps> = ({
       isGoldenPoint,
       advantagesBeforeGoldenPoint: currentSettings.advantagesBeforeGoldenPoint ?? 0,
       bestOfSets,
+      gamesPerSet,
       ttsSpeed: currentSettings.ttsSpeed,
       ttsVolume: currentSettings.ttsVolume,
       isMuted: currentSettings.isMuted,
@@ -301,6 +303,19 @@ export const MatchSetupModal: React.FC<MatchSetupModalProps> = ({
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-black text-white">Formato set</span>
+            <div className="flex gap-2">
+              {([6, 4] as const).map(target => (
+                <button key={target} type="button" onClick={() => setGamesPerSet(target)}
+                  aria-pressed={gamesPerSet === target}
+                  className={`px-3 py-2 rounded-lg text-xs font-black ${gamesPerSet === target ? 'bg-[#CCFF00] text-slate-950' : 'bg-slate-800 text-white'}`}>
+                  {target === 6 ? 'Standard (6)' : 'Breve (4)'}
+                </button>
+              ))}
             </div>
           </div>
 

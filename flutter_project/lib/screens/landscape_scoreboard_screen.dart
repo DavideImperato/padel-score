@@ -267,12 +267,12 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF070B14).withOpacity(0.95),
+                        color: const Color(0xFF070B14).withValues(alpha: 0.95),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(color: _remoteFeedbackColor, width: 2),
                         boxShadow: [
                           BoxShadow(
-                            color: _remoteFeedbackColor.withOpacity(0.4),
+                            color: _remoteFeedbackColor.withValues(alpha: 0.4),
                             blurRadius: 18,
                             spreadRadius: 2,
                           ),

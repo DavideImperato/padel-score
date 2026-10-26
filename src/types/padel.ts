@@ -38,6 +38,7 @@ export interface MatchSettings {
   isGoldenPoint: boolean;
   advantagesBeforeGoldenPoint: number; // 0 = subito punto d'oro, 1 = 1 vantaggio poi punto d'oro, 2 = 2 vantaggi poi punto d'oro
   bestOfSets: number; // 1, 3, or 5
+  gamesPerSet?: 4 | 6; // 4 = mini-set FIP, 6 = set normale (default)
   ttsSpeed: number; // 0.8 to 1.3
   ttsVolume: number; // 0 to 1
   isMuted?: boolean;
