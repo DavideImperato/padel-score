@@ -139,6 +139,7 @@ export function createInitialSnapshot(firstServerPlayerId: number = 1): PadelMat
     servingRotationIndex: 0,
     initialSetServer: initialTeam,
     isTieBreak: false,
+    isMatchTieBreak: false,
     tieBreakPointsA: 0,
     tieBreakPointsB: 0,
     deuceCount: 0,
@@ -173,12 +174,18 @@ export function processPoint(
     else tbB++;
 
     const totalPoints = tbA + tbB;
-    const wonA = tbA >= 7 && tbA - tbB >= 2;
-    const wonB = tbB >= 7 && tbB - tbA >= 2;
+    const target = current.isMatchTieBreak
+      ? (settings.decidingTieBreakPoints === 7 ? 7 : 10)
+      : 7;
+    const wonA = tbA >= target && tbA - tbB >= 2;
+    const wonB = tbB >= target && tbB - tbA >= 2;
 
     // Vittoria del Tie-Break
     if (wonA || wonB) {
       const setWinner: Team = wonA ? 'teamA' : 'teamB';
+      if (current.isMatchTieBreak) {
+        return processMatchTieBreakWin(current, setWinner, settings, tbA, tbB);
+      }
       const tieBreakGameLimit = settings.gamesPerSet === 4 ? 4 : 6;
       return processSetWin(
         current,
@@ -356,6 +363,7 @@ function processGameWin(
       currentGamesA: gamesTarget,
       currentGamesB: gamesTarget,
       isTieBreak: true,
+      isMatchTieBreak: false,
       tieBreakPointsA: 0,
       tieBreakPointsB: 0,
       servingTeam: nextServerTeam,
@@ -414,6 +422,41 @@ function processGameWin(
       servingTeam: nextServerTeam,
       rawPointsA: 0,
       rawPointsB: 0,
+    },
+  };
+}
+
+/** Il match tie-break non assegna game fittizi: è un set decisivo autonomo. */
+function processMatchTieBreakWin(
+  current: PadelMatchSnapshot,
+  winner: Team,
+  settings: MatchSettings,
+  tbA: number,
+  tbB: number
+): ScoringResult {
+  const completedSets: SetScore[] = [
+    ...current.completedSets,
+    { gamesA: 0, gamesB: 0, tieBreakPointsA: tbA, tieBreakPointsB: tbB,
+      isMatchTieBreak: true, isCompleted: true, winner },
+  ];
+  const setsWonA = completedSets.filter(s => s.winner === 'teamA').length;
+  const setsWonB = completedSets.filter(s => s.winner === 'teamB').length;
+  const name = winner === 'teamA' ? settings.teamAName : settings.teamBName;
+  return {
+    nextSnapshot: {
+      ...current, completedSets, matchWinner: winner,
+      rawPointsA: 0, rawPointsB: 0, deuceCount: 0,
+      isTieBreak: false, isMatchTieBreak: false,
+      tieBreakPointsA: 0, tieBreakPointsB: 0,
+      tieBreakInitialRotationIndex: undefined,
+      lastEventMessage: `Match tie-break ${tbA}-${tbB}. Partita vinta da ${name}!`,
+    },
+    event: {
+      type: 'matchWon', scoringTeam: winner, winner,
+      setNumber: completedSets.length, tieBreakPointsA: tbA, tieBreakPointsB: tbB,
+      finalGamesA: 0, finalGamesB: 0, setsWonA, setsWonB,
+      serverPlayerId: getCurrentServerPlayerId(current, settings.firstServerPlayerId || 1),
+      servingTeam: current.servingTeam, rawPointsA: 0, rawPointsB: 0,
     },
   };
 }
@@ -498,12 +541,25 @@ function processSetWin(
     servingRotationIndex: nextRotIndex,
     initialSetServer: nextSetServerTeam,
     isTieBreak: false,
+    isMatchTieBreak: false,
     tieBreakPointsA: 0,
     tieBreakPointsB: 0,
     tieBreakInitialRotationIndex: undefined,
     matchWinner,
     lastEventMessage: matchWinner ? `Partita vinta da ${setWinnerName}!` : `Set vinto da ${setWinnerName}`,
   };
+
+  // Sul pareggio prima dell'ultimo set (1-1 o 2-2), avvia il match TB a 10.
+  const startDecidingTieBreak =
+    !matchWinner && settings.decidingMatchTieBreak === true &&
+    settings.bestOfSets > 1 && updatedSets.length === settings.bestOfSets - 1 &&
+    setsWonA === setsWonB;
+  if (startDecidingTieBreak) {
+    nextSnapshot.isTieBreak = true;
+    nextSnapshot.isMatchTieBreak = true;
+    nextSnapshot.tieBreakInitialRotationIndex = nextRotIndex;
+    nextSnapshot.lastEventMessage = 'Match tie-break decisivo a 10 punti';
+  }
 
   const isMatchOver = matchWinner !== undefined;
 

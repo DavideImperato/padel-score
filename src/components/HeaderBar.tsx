@@ -58,7 +58,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           </span>
           {snapshot.isTieBreak && (
             <span className="px-1 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              TB
+              {snapshot.isMatchTieBreak ? 'MTB 10' : 'TB'}
             </span>
           )}
         </div>
@@ -72,12 +72,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 <span
                   key={idx}
                   className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] sm:text-[11px] font-mono font-bold text-zinc-300 shrink-0"
-                  title={`Set ${idx + 1}: ${set.gamesA}-${set.gamesB}`}
+                  title={set.isMatchTieBreak ? `Match TB: ${set.tieBreakPointsA}-${set.tieBreakPointsB}` : `Set ${idx + 1}: ${set.gamesA}-${set.gamesB}`}
                 >
-                  <span className={isWonA ? 'text-[#CCFF00]' : 'text-zinc-400'}>{set.gamesA}</span>
+                  <span className={isWonA ? 'text-[#CCFF00]' : 'text-zinc-400'}>{set.isMatchTieBreak ? set.tieBreakPointsA : set.gamesA}</span>
                   <span className="text-zinc-600 mx-0.5">-</span>
-                  <span className={!isWonA ? 'text-[#00E5FF]' : 'text-zinc-400'}>{set.gamesB}</span>
-                  {set.tieBreakPointsA !== undefined && set.tieBreakPointsB !== undefined && (
+                  <span className={!isWonA ? 'text-[#00E5FF]' : 'text-zinc-400'}>{set.isMatchTieBreak ? set.tieBreakPointsB : set.gamesB}</span>
+                  {!set.isMatchTieBreak && set.tieBreakPointsA !== undefined && set.tieBreakPointsB !== undefined && (
                     <span className="text-[9px] text-zinc-500 ml-0.5">
                       ({set.tieBreakPointsA}-{set.tieBreakPointsB})
                     </span>

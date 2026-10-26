@@ -86,11 +86,11 @@ export const MatchInfoModal: React.FC<MatchInfoModalProps> = ({
                 const completedSet = snapshot.completedSets[idx];
                 const isCurrent = idx === snapshot.completedSets.length && !snapshot.matchWinner;
                 const score = completedSet
-                  ? completedSet.gamesA
+                  ? (completedSet.isMatchTieBreak ? completedSet.tieBreakPointsA : completedSet.gamesA)
                   : isCurrent
-                  ? snapshot.currentGamesA
+                  ? (snapshot.isMatchTieBreak ? snapshot.tieBreakPointsA : snapshot.currentGamesA)
                   : '-';
-                const tb = completedSet?.tieBreakPointsA !== undefined
+                const tb = !completedSet?.isMatchTieBreak && completedSet?.tieBreakPointsA !== undefined
                   ? `(${completedSet.tieBreakPointsA})`
                   : '';
                 return (
@@ -128,11 +128,11 @@ export const MatchInfoModal: React.FC<MatchInfoModalProps> = ({
                 const completedSet = snapshot.completedSets[idx];
                 const isCurrent = idx === snapshot.completedSets.length && !snapshot.matchWinner;
                 const score = completedSet
-                  ? completedSet.gamesB
+                  ? (completedSet.isMatchTieBreak ? completedSet.tieBreakPointsB : completedSet.gamesB)
                   : isCurrent
-                  ? snapshot.currentGamesB
+                  ? (snapshot.isMatchTieBreak ? snapshot.tieBreakPointsB : snapshot.currentGamesB)
                   : '-';
-                const tb = completedSet?.tieBreakPointsB !== undefined
+                const tb = !completedSet?.isMatchTieBreak && completedSet?.tieBreakPointsB !== undefined
                   ? `(${completedSet.tieBreakPointsB})`
                   : '';
                 return (

@@ -62,6 +62,7 @@ class SetScore {
   final int? tieBreakPointsA;
   final int? tieBreakPointsB;
   final bool isCompleted;
+  final bool isMatchTieBreak;
   final Team? winner;
 
   const SetScore({
@@ -70,6 +71,7 @@ class SetScore {
     this.tieBreakPointsA,
     this.tieBreakPointsB,
     this.isCompleted = false,
+    this.isMatchTieBreak = false,
     this.winner,
   });
 
@@ -79,6 +81,7 @@ class SetScore {
     int? tieBreakPointsA,
     int? tieBreakPointsB,
     bool? isCompleted,
+    bool? isMatchTieBreak,
     Team? winner,
   }) {
     return SetScore(
@@ -87,12 +90,14 @@ class SetScore {
       tieBreakPointsA: tieBreakPointsA ?? this.tieBreakPointsA,
       tieBreakPointsB: tieBreakPointsB ?? this.tieBreakPointsB,
       isCompleted: isCompleted ?? this.isCompleted,
+      isMatchTieBreak: isMatchTieBreak ?? this.isMatchTieBreak,
       winner: winner ?? this.winner,
     );
   }
 
   @override
   String toString() {
+    if (isMatchTieBreak) return 'MTB $tieBreakPointsA-$tieBreakPointsB';
     if (tieBreakPointsA != null && tieBreakPointsB != null) {
       return '$gamesA-$gamesB ($tieBreakPointsA-$tieBreakPointsB)';
     }
@@ -130,6 +135,7 @@ class PadelMatchSnapshot {
 
   /// Flag se siamo in Tie-Break
   final bool isTieBreak;
+  final bool isMatchTieBreak;
 
   /// Punti numerici del Tie-Break
   final int tieBreakPointsA;
@@ -155,6 +161,7 @@ class PadelMatchSnapshot {
     required this.servingRotationIndex,
     required this.initialSetServer,
     required this.isTieBreak,
+    this.isMatchTieBreak = false,
     required this.tieBreakPointsA,
     required this.tieBreakPointsB,
     this.tieBreakInitialRotationIndex,
@@ -178,6 +185,7 @@ class PadelMatchSnapshot {
       servingRotationIndex: initialRotationIndex,
       initialSetServer: initialServer,
       isTieBreak: false,
+      isMatchTieBreak: false,
       tieBreakPointsA: 0,
       tieBreakPointsB: 0,
       tieBreakInitialRotationIndex: null,
@@ -238,6 +246,7 @@ class PadelMatchSnapshot {
     int? servingRotationIndex,
     Team? initialSetServer,
     bool? isTieBreak,
+    bool? isMatchTieBreak,
     int? tieBreakPointsA,
     int? tieBreakPointsB,
     Object? tieBreakInitialRotationIndex = _notProvided,
@@ -255,6 +264,7 @@ class PadelMatchSnapshot {
       servingRotationIndex: servingRotationIndex ?? this.servingRotationIndex,
       initialSetServer: initialSetServer ?? this.initialSetServer,
       isTieBreak: isTieBreak ?? this.isTieBreak,
+      isMatchTieBreak: isMatchTieBreak ?? this.isMatchTieBreak,
       tieBreakPointsA: tieBreakPointsA ?? this.tieBreakPointsA,
       tieBreakPointsB: tieBreakPointsB ?? this.tieBreakPointsB,
       tieBreakInitialRotationIndex: identical(tieBreakInitialRotationIndex, _notProvided)

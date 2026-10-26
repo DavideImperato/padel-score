@@ -26,6 +26,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   int _scoringMode = 1;
   int _bestOfSets = 3;
   bool _shortSets = false;
+  bool _decidingMatchTieBreak = false;
+  int _decidingTieBreakPoints = 10;
 
   @override
   void initState() {
@@ -43,6 +45,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
         : (provider.advantagesBeforeGoldenPoint >= 2 ? 2 : 1);
     _bestOfSets = provider.bestOfSets;
     _shortSets = provider.shortSets;
+    _decidingMatchTieBreak = provider.decidingMatchTieBreak;
+    _decidingTieBreakPoints = provider.decidingTieBreakPoints;
   }
 
   @override
@@ -74,6 +78,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       advantagesBeforeGoldenPoint: _scoringMode == 2 ? 2 : 0,
       bestOfSets: _bestOfSets,
       shortSets: _shortSets,
+      decidingMatchTieBreak: _bestOfSets > 1 && _decidingMatchTieBreak,
+      decidingTieBreakPoints: _decidingTieBreakPoints,
     );
 
     // Naviga al tabellone orizzontale
@@ -480,6 +486,43 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
               onChanged: (value) => setState(() => _shortSets = value),
             ),
           ),
+          const Divider(color: Color(0xFF1E293B)),
+          Material(
+            type: MaterialType.transparency,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Tie-break decisivo (7 o 10 punti)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Sostituisce il set finale sul pareggio 1-1 o 2-2.',
+                  style: TextStyle(color: Color(0xFF94A3B8))),
+              value: _bestOfSets > 1 && _decidingMatchTieBreak,
+              activeTrackColor: const Color(0xFFCCFF00),
+              onChanged: _bestOfSets == 1
+                  ? null
+                  : (value) => setState(() => _decidingMatchTieBreak = value),
+            ),
+          ),
+          if (_bestOfSets > 1 && _decidingMatchTieBreak)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final points in [7, 10])
+                    ChoiceChip(
+                      label: Text('$points punti'),
+                      selected: _decidingTieBreakPoints == points,
+                      selectedColor: const Color(0xFFCCFF00),
+                      backgroundColor: const Color(0xFF1E293B),
+                      labelStyle: TextStyle(
+                        color: _decidingTieBreakPoints == points ? Colors.black : Colors.white70,
+                      ),
+                      onSelected: (_) => setState(() => _decidingTieBreakPoints = points),
+                    ),
+                ],
+              ),
+            ),
           const Divider(color: Color(0xFF1E293B)),
           // Formato Set
           Row(

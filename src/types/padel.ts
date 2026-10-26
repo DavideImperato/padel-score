@@ -6,6 +6,7 @@ export interface SetScore {
   tieBreakPointsA?: number;
   tieBreakPointsB?: number;
   isCompleted: boolean;
+  isMatchTieBreak?: boolean;
   winner?: Team;
 }
 
@@ -19,6 +20,7 @@ export interface PadelMatchSnapshot {
   servingRotationIndex: number;
   initialSetServer: Team;
   isTieBreak: boolean;
+  isMatchTieBreak?: boolean;
   tieBreakPointsA: number;
   tieBreakPointsB: number;
   tieBreakInitialRotationIndex?: number;
@@ -38,6 +40,8 @@ export interface MatchSettings {
   isGoldenPoint: boolean;
   advantagesBeforeGoldenPoint: number; // 0 = subito punto d'oro, 1 = 1 vantaggio poi punto d'oro, 2 = 2 vantaggi poi punto d'oro
   bestOfSets: number; // 1, 3, or 5
+  decidingMatchTieBreak?: boolean; // sostituisce l'ultimo set con un tie-break decisivo
+  decidingTieBreakPoints?: 7 | 10; // FIP: 7 oppure super tie-break a 10; default 10
   gamesPerSet?: 4 | 6; // 4 = mini-set FIP, 6 = set normale (default)
   ttsSpeed: number; // 0.8 to 1.3
   ttsVolume: number; // 0 to 1

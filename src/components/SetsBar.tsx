@@ -45,13 +45,13 @@ export const SetsBar: React.FC<SetsBarProps> = ({
             >
               <span className="text-slate-400 font-bold">Set {idx + 1}:</span>
               <span className={`text-sm ${isWonA ? 'text-[#CCFF00]' : 'text-slate-300'}`}>
-                {set.gamesA}
+                {set.isMatchTieBreak ? set.tieBreakPointsA : set.gamesA}
               </span>
               <span className="text-slate-500">-</span>
               <span className={`text-sm ${!isWonA ? 'text-[#00E5FF]' : 'text-slate-300'}`}>
-                {set.gamesB}
+                {set.isMatchTieBreak ? set.tieBreakPointsB : set.gamesB}
               </span>
-              {set.tieBreakPointsA !== undefined && set.tieBreakPointsB !== undefined && (
+              {!set.isMatchTieBreak && set.tieBreakPointsA !== undefined && set.tieBreakPointsB !== undefined && (
                 <span className="text-[10px] text-purple-400 font-mono font-bold">
                   ({set.tieBreakPointsA}-{set.tieBreakPointsB})
                 </span>

@@ -26,10 +26,12 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
     tieBreakB?: number;
     winner?: Team;
     isIncomplete?: boolean;
+    isMatchTieBreak?: boolean;
   }> = snapshot.completedSets.map((s, idx) => ({
     setNumber: idx + 1,
     gamesA: s.gamesA,
     gamesB: s.gamesB,
+    isMatchTieBreak: s.isMatchTieBreak,
     tieBreakA: s.tieBreakPointsA,
     tieBreakB: s.tieBreakPointsB,
     winner: s.winner,
@@ -49,6 +51,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
       setNumber: snapshot.completedSets.length + 1,
       gamesA: snapshot.currentGamesA,
       gamesB: snapshot.currentGamesB,
+      isMatchTieBreak: snapshot.isMatchTieBreak,
       tieBreakA: snapshot.isTieBreak ? snapshot.tieBreakPointsA : undefined,
       tieBreakB: snapshot.isTieBreak ? snapshot.tieBreakPointsB : undefined,
       winner:
@@ -231,8 +234,8 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
                               : 'text-slate-300'
                           }`}
                         >
-                          {s.gamesA}
-                          {s.tieBreakA !== undefined && s.tieBreakB !== undefined && (
+                          {s.isMatchTieBreak ? s.tieBreakA : s.gamesA}
+                          {!s.isMatchTieBreak && s.tieBreakA !== undefined && s.tieBreakB !== undefined && (
                             <sup className="text-[10px] ml-0.5 text-slate-400">
                               ({s.tieBreakA})
                             </sup>
@@ -271,8 +274,8 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
                               : 'text-slate-300'
                           }`}
                         >
-                          {s.gamesB}
-                          {s.tieBreakA !== undefined && s.tieBreakB !== undefined && (
+                          {s.isMatchTieBreak ? s.tieBreakB : s.gamesB}
+                          {!s.isMatchTieBreak && s.tieBreakA !== undefined && s.tieBreakB !== undefined && (
                             <sup className="text-[10px] ml-0.5 text-slate-400">
                               ({s.tieBreakB})
                             </sup>

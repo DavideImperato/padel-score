@@ -32,6 +32,8 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
   );
   const [bestOfSets, setBestOfSets] = useState(currentSettings.bestOfSets);
   const [gamesPerSet, setGamesPerSet] = useState<4 | 6>(currentSettings.gamesPerSet === 4 ? 4 : 6);
+  const [decidingMatchTieBreak, setDecidingMatchTieBreak] = useState(currentSettings.decidingMatchTieBreak === true);
+  const [decidingTieBreakPoints, setDecidingTieBreakPoints] = useState<7 | 10>(currentSettings.decidingTieBreakPoints === 7 ? 7 : 10);
 
   const player1Display = p1.trim() || 'Giocatore 1';
   const player2Display = p2.trim() || 'Giocatore 2';
@@ -52,6 +54,8 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
       advantagesBeforeGoldenPoint,
       bestOfSets,
       gamesPerSet,
+      decidingMatchTieBreak: bestOfSets > 1 && decidingMatchTieBreak,
+      decidingTieBreakPoints,
       ttsSpeed: currentSettings.ttsSpeed,
       ttsVolume: currentSettings.ttsVolume,
       isMuted: currentSettings.isMuted,
@@ -372,6 +376,28 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                 ))}
               </div>
             </div>
+
+          <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white">
+            <span>
+              <strong className="block">Tie-break decisivo (7 o 10 punti)</strong>
+              <small className="text-slate-400">Sostituisce l'ultimo set quando le coppie sono in parità (1-1 oppure 2-2).</small>
+            </span>
+            <input type="checkbox" checked={bestOfSets > 1 && decidingMatchTieBreak}
+              disabled={bestOfSets === 1} onChange={e => setDecidingMatchTieBreak(e.target.checked)}
+              className="h-5 w-5 accent-lime-400" aria-label="Match tie-break decisivo" />
+          </label>
+          {bestOfSets > 1 && decidingMatchTieBreak && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl" role="group" aria-label="Punti del tie-break decisivo">
+              <span className="text-xs text-slate-300 mr-auto">Punteggio decisivo</span>
+              {([7, 10] as const).map(points => (
+                <button type="button" key={points} aria-pressed={decidingTieBreakPoints === points}
+                  onClick={() => setDecidingTieBreakPoints(points)}
+                  className={`px-3 py-2 rounded-lg text-xs font-bold ${decidingTieBreakPoints === points ? 'bg-[#CCFF00] text-slate-950' : 'bg-slate-800 text-white'}`}>
+                  {points} punti
+                </button>
+              ))}
+            </div>
+          )}
 
             {/* GROSSO PULSANTE CENTRALE "INIZIA PARTITA" */}
             <div className="pt-2">

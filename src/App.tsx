@@ -37,6 +37,8 @@ const DEFAULT_SETTINGS: MatchSettings = {
   advantagesBeforeGoldenPoint: 0,
   bestOfSets: 3,
   gamesPerSet: 6,
+  decidingMatchTieBreak: false,
+  decidingTieBreakPoints: 10,
   ttsSpeed: 0.95, // Cadenza arbitrale naturale
   ttsVolume: 1.0,
   isMuted: false,
@@ -60,6 +62,8 @@ export default function App() {
           isSfxMuted: parsed.isSfxMuted ?? false,
           advantagesBeforeGoldenPoint: parsed.advantagesBeforeGoldenPoint ?? 0,
           gamesPerSet: parsed.gamesPerSet === 4 ? 4 : 6,
+          decidingMatchTieBreak: parsed.decidingMatchTieBreak === true,
+          decidingTieBreakPoints: parsed.decidingTieBreakPoints === 7 ? 7 : 10,
         };
       }
     } catch {}
@@ -723,7 +727,7 @@ export default function App() {
       {snapshot.isTieBreak && !snapshot.matchWinner && (
         <div className="absolute top-14 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">
           <div className="px-4 py-1.5 rounded-lg bg-purple-600 text-white font-bold text-xs tracking-wider uppercase shadow-lg flex items-center gap-1.5 border border-purple-400">
-            <span>TIE-BREAK A 7 PUNTI</span>
+            <span>{snapshot.isMatchTieBreak ? 'MATCH TIE-BREAK A 10 PUNTI' : 'TIE-BREAK A 7 PUNTI'}</span>
           </div>
         </div>
       )}

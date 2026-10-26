@@ -26,6 +26,8 @@ class PadelScoreProvider extends ChangeNotifier {
   bool _isGoldenPoint = true;
   int _advantagesBeforeGoldenPoint = 0; // 0 = subito punto d'oro, 1 = 1 vantaggio poi punto d'oro, 2 = Star Point FIP 2026
   int _bestOfSets = 3;
+  bool _decidingMatchTieBreak = false;
+  int _decidingTieBreakPoints = 10; // Tie-break decisivo: 7 oppure 10 punti
   bool _shortSets = false; // Mini-set FIP: 4 game, tie-break sul 4-4
 
   // Evita che il caricamento asincrono delle preferenze sostituisca
@@ -53,6 +55,8 @@ class PadelScoreProvider extends ChangeNotifier {
   int get advantagesBeforeGoldenPoint => _advantagesBeforeGoldenPoint;
   int get bestOfSets => _bestOfSets;
   bool get shortSets => _shortSets;
+  bool get decidingMatchTieBreak => _decidingMatchTieBreak;
+  int get decidingTieBreakPoints => _decidingTieBreakPoints;
   bool get canUndo => _history.isNotEmpty;
   bool get isMuted => _ttsService.isMuted;
   bool get isMatchOver => _currentSnapshot.matchWinner != null;
@@ -99,6 +103,8 @@ class PadelScoreProvider extends ChangeNotifier {
     int advantagesBeforeGoldenPoint = 0,
     required int bestOfSets,
     bool shortSets = false,
+    bool decidingMatchTieBreak = false,
+    int decidingTieBreakPoints = 10,
   }) {
     _configurationVersion++;
     _teamAName = team1.trim().isEmpty ? 'Squadra 1' : team1.trim();
@@ -114,6 +120,8 @@ class PadelScoreProvider extends ChangeNotifier {
     _advantagesBeforeGoldenPoint = advantagesBeforeGoldenPoint;
     _bestOfSets = bestOfSets;
     _shortSets = shortSets;
+    _decidingMatchTieBreak = bestOfSets > 1 && decidingMatchTieBreak;
+    _decidingTieBreakPoints = decidingTieBreakPoints == 7 ? 7 : 10;
     _isSidesSwapped = false;
 
     final Team initialTeam = getTeamForPlayerId(_firstServerPlayerId);
@@ -141,6 +149,8 @@ class PadelScoreProvider extends ChangeNotifier {
       _isGoldenPoint = prefs.getBool('isGoldenPoint') ?? true;
       _advantagesBeforeGoldenPoint = prefs.getInt('advantagesBeforeGoldenPoint') ?? 0;
       _shortSets = prefs.getBool('shortSets') ?? false;
+      _decidingMatchTieBreak = prefs.getBool('decidingMatchTieBreak') ?? false;
+      _decidingTieBreakPoints = prefs.getInt('decidingTieBreakPoints') == 7 ? 7 : 10;
       _teamAName = prefs.getString('teamAName') ?? 'Gli Smashtori';
       _teamBName = prefs.getString('teamBName') ?? 'I Timemasters';
       _player1Name = prefs.getString('player1Name') ?? 'Mario Rossi';
@@ -164,6 +174,8 @@ class PadelScoreProvider extends ChangeNotifier {
       await prefs.setBool('isGoldenPoint', _isGoldenPoint);
       await prefs.setInt('advantagesBeforeGoldenPoint', _advantagesBeforeGoldenPoint);
       await prefs.setBool('shortSets', _shortSets);
+      await prefs.setBool('decidingMatchTieBreak', _decidingMatchTieBreak);
+      await prefs.setInt('decidingTieBreakPoints', _decidingTieBreakPoints);
       await prefs.setString('teamAName', _teamAName);
       await prefs.setString('teamBName', _teamBName);
       await prefs.setString('player1Name', _player1Name);
@@ -281,6 +293,7 @@ class PadelScoreProvider extends ChangeNotifier {
         currentGamesA: gamesTarget,
         currentGamesB: gamesTarget,
         isTieBreak: true,
+        isMatchTieBreak: false,
         tieBreakPointsA: 0,
         tieBreakPointsB: 0,
         servingTeam: nextServerTeam,
@@ -329,12 +342,16 @@ class PadelScoreProvider extends ChangeNotifier {
 
     final int totalPoints = tbA + tbB;
 
-    // Controllo vittoria tie-break: 7 punti con 2 di scarto
-    final bool tbWonA = (tbA >= 7 && (tbA - tbB) >= 2);
-    final bool tbWonB = (tbB >= 7 && (tbB - tbA) >= 2);
+    final target = _currentSnapshot.isMatchTieBreak ? _decidingTieBreakPoints : 7;
+    final bool tbWonA = (tbA >= target && (tbA - tbB) >= 2);
+    final bool tbWonB = (tbB >= target && (tbB - tbA) >= 2);
 
     if (tbWonA || tbWonB) {
       final Team setWinner = tbWonA ? Team.teamA : Team.teamB;
+      if (_currentSnapshot.isMatchTieBreak) {
+        _winMatchTieBreak(setWinner, tbA, tbB);
+        return;
+      }
       final int limit = _shortSets ? 4 : 6;
       _winSet(setWinner, tbWonA ? limit + 1 : limit, tbWonB ? limit + 1 : limit, tbA, tbB);
     } else {
@@ -355,6 +372,24 @@ class PadelScoreProvider extends ChangeNotifier {
       notifyListeners();
       _ttsService.speak('$tbA a $tbB. Serve $currentServingPlayerName.');
     }
+  }
+
+  // Il set decisivo è registrato con i punti reali, senza game inventati.
+  void _winMatchTieBreak(Team winner, int tbA, int tbB) {
+    final sets = List<SetScore>.from(_currentSnapshot.completedSets)
+      ..add(SetScore(gamesA: 0, gamesB: 0, tieBreakPointsA: tbA,
+          tieBreakPointsB: tbB, isMatchTieBreak: true,
+          isCompleted: true, winner: winner));
+    _currentSnapshot = _currentSnapshot.copyWith(
+      completedSets: sets, matchWinner: winner,
+      rawPointsA: 0, rawPointsB: 0, deuceCount: 0,
+      isTieBreak: false, isMatchTieBreak: false,
+      tieBreakPointsA: 0, tieBreakPointsB: 0,
+      tieBreakInitialRotationIndex: null,
+      lastEventMessage: 'Match tie-break $tbA-$tbB. Partita vinta da ${getTeamName(winner)}!',
+    );
+    notifyListeners();
+    _ttsService.speak('Match tie-break $tbA a $tbB. Partita vinta da ${getTeamName(winner)}!');
   }
 
   void _winSet(Team setWinner, int gA, int gB, int? tbA, int? tbB) {
@@ -396,6 +431,10 @@ class PadelScoreProvider extends ChangeNotifier {
     final int nextServerPlayerId = rotation[nextRotIndex % rotation.length];
     final Team nextSetServerTeam = getTeamForPlayerId(nextServerPlayerId);
 
+    final bool startDecidingTieBreak = matchWinner == null &&
+        _decidingMatchTieBreak && _bestOfSets > 1 &&
+        updatedSets.length == _bestOfSets - 1 && setsWonA == setsWonB;
+
     _currentSnapshot = _currentSnapshot.copyWith(
       rawPointsA: 0,
       rawPointsB: 0,
@@ -406,10 +445,11 @@ class PadelScoreProvider extends ChangeNotifier {
       servingTeam: nextSetServerTeam,
       servingRotationIndex: nextRotIndex,
       initialSetServer: nextSetServerTeam,
-      isTieBreak: false,
+      isTieBreak: startDecidingTieBreak,
+      isMatchTieBreak: startDecidingTieBreak,
       tieBreakPointsA: 0,
       tieBreakPointsB: 0,
-      tieBreakInitialRotationIndex: null,
+      tieBreakInitialRotationIndex: startDecidingTieBreak ? nextRotIndex : null,
       matchWinner: matchWinner,
       lastEventMessage: matchWinner != null
           ? 'Partita vinta da ${getTeamName(matchWinner)}!'
@@ -422,6 +462,8 @@ class PadelScoreProvider extends ChangeNotifier {
       _ttsService.speak(
         'Game, set e partita per la squadra ${getTeamName(matchWinner)}! Risultato finale: $setsWonA set a $setsWonB.',
       );
+    } else if (startDecidingTieBreak) {
+      _ttsService.speak('Set per ${getTeamName(setWinner)}. Inizia il match tie-break decisivo a dieci punti. Serve $currentServingPlayerName.');
     } else {
       _ttsService.speak(
         'Game e $setOrdinal set per la squadra ${getTeamName(setWinner)}. $gA game a $gB.',

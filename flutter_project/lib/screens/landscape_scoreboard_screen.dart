@@ -432,7 +432,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
             ),
             child: Text(
               snapshot.isTieBreak
-                  ? 'SET $currentSetNumber: TIE-BREAK'
+                  ? (snapshot.isMatchTieBreak ? 'MATCH TIE-BREAK A ${provider.decidingTieBreakPoints}' : 'SET $currentSetNumber: TIE-BREAK')
                   : 'SET $currentSetNumber IN CORSO',
               style: const TextStyle(
                 color: Colors.white,
@@ -890,7 +890,9 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
       message = '🏆 VITTORIA MATCH: ${provider.getTeamName(winner).toUpperCase()}! 🏆';
       bannerColor = const Color(0xFF10B981);
     } else if (snapshot.isTieBreak) {
-      message = '⚡ TIE-BREAK A 7 PUNTI ⚡';
+      message = snapshot.isMatchTieBreak
+          ? '⚡ MATCH TIE-BREAK DECISIVO A ${provider.decidingTieBreakPoints} PUNTI ⚡'
+          : '⚡ TIE-BREAK A 7 PUNTI ⚡';
       bannerColor = const Color(0xFF8B5CF6);
     } else if (snapshot.isGoldenPointSituation(provider.isGoldenPoint, provider.advantagesBeforeGoldenPoint)) {
       message = provider.advantagesBeforeGoldenPoint == 2

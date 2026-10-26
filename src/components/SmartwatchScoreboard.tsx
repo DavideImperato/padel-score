@@ -57,7 +57,7 @@ export const SmartwatchScoreboard: React.FC<SmartwatchScoreboardProps> = ({
       <div className="flex items-center justify-between px-1 shrink-0 text-[10px] font-black border-b border-slate-900 pb-1">
         <div className="flex items-center gap-1">
           <span className="text-[#CCFF00]">SET {currentSetNum}</span>
-          {snapshot.isTieBreak && <span className="text-purple-400 font-bold">TB</span>}
+          {snapshot.isTieBreak && <span className="text-purple-400 font-bold">{snapshot.isMatchTieBreak ? 'MTB 10' : 'TB'}</span>}
         </div>
 
         <div className="font-mono text-slate-300 font-bold">
