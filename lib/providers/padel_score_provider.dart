@@ -27,6 +27,10 @@ class PadelScoreProvider extends ChangeNotifier {
   int _advantagesBeforeGoldenPoint = 0; // 0 = subito punto d'oro, 1 = 1 vantaggio poi punto d'oro, 2 = Star Point FIP 2026
   int _bestOfSets = 3;
 
+  // Evita che il caricamento asincrono delle preferenze sostituisca
+  // le impostazioni o lo snapshot dopo una nuova partita.
+  int _configurationVersion = 0;
+
   // Stato UI visivo indipendente per cambio campo (inversione lati senza alterare dati sportivi)
   bool _isSidesSwapped = false;
 
@@ -93,6 +97,7 @@ class PadelScoreProvider extends ChangeNotifier {
     int advantagesBeforeGoldenPoint = 0,
     required int bestOfSets,
   }) {
+    _configurationVersion++;
     _teamAName = team1.trim().isEmpty ? 'Squadra 1' : team1.trim();
     _teamBName = team2.trim().isEmpty ? 'Squadra 2' : team2.trim();
     _player1Name = player1.trim().isEmpty ? 'Giocatore 1' : player1.trim();
@@ -125,8 +130,10 @@ class PadelScoreProvider extends ChangeNotifier {
   }
 
   Future<void> _loadPreferences() async {
+    final versionAtStart = _configurationVersion;
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (versionAtStart != _configurationVersion) return;
       _isGoldenPoint = prefs.getBool('isGoldenPoint') ?? true;
       _advantagesBeforeGoldenPoint = prefs.getInt('advantagesBeforeGoldenPoint') ?? 0;
       _teamAName = prefs.getString('teamAName') ?? 'Gli Smashtori';
@@ -167,6 +174,7 @@ class PadelScoreProvider extends ChangeNotifier {
 
   void addPoint(Team scoringTeam) {
     if (isMatchOver) return;
+    _configurationVersion++;
 
     _history.add(_currentSnapshot);
 
@@ -430,7 +438,9 @@ class PadelScoreProvider extends ChangeNotifier {
         _ttsService.speak('Trenta pari.');
       } else if (pA == 3) {
         if (_isGoldenPoint && deuceCount >= _advantagesBeforeGoldenPoint) {
-          _ttsService.speak('Quaranta pari. Punto d\'oro.');
+          _ttsService.speak(_advantagesBeforeGoldenPoint == 2
+              ? 'Quaranta pari. Star Point.'
+              : 'Quaranta pari. Punto d\'oro.');
         } else {
           _ttsService.speak('Quaranta pari. Parità.');
         }
@@ -517,11 +527,17 @@ class PadelScoreProvider extends ChangeNotifier {
   }
 
   void setGoldenPoint(bool enabled, [int advantagesBefore = 0]) {
+    // Compatibilità API: le modalità si scelgono nella schermata di setup.
+    _configurationVersion++;
     _isGoldenPoint = enabled;
     _advantagesBeforeGoldenPoint = advantagesBefore;
     _savePreferences();
     notifyListeners();
-    _ttsService.speak(enabled ? 'Punto d\'oro attivato.' : 'Vantaggi tradizionali attivati.');
+    _ttsService.speak(!enabled
+        ? 'Vantaggi tradizionali attivati.'
+        : advantagesBefore == 2
+            ? 'Star Point attivato.'
+            : 'Punto d\'oro attivato.');
   }
 
   void toggleMute() {

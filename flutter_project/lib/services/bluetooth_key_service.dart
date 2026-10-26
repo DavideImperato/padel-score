@@ -151,12 +151,12 @@ class BluetoothKeyService {
     // 3. SCORCIATOIE RAPIDE DA TASTIERA PER TEST / ARBITRO
     if (event is KeyDownEvent) {
       if (key == LogicalKeyboardKey.keyA || key == LogicalKeyboardKey.digit1) {
-        onFeedback?.('teamA', '+1 SQUADRA A');
+        onFeedback?.call('teamA', '+1 SQUADRA A');
         onTeamAPoint();
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.keyB || key == LogicalKeyboardKey.digit2) {
-        onFeedback?.('teamB', '+1 SQUADRA B');
+        onFeedback?.call('teamB', '+1 SQUADRA B');
         onTeamBPoint();
         return KeyEventResult.handled;
       }
@@ -189,7 +189,7 @@ class BluetoothKeyService {
       _debounceTimer = Timer(debounceDuration, () {
         if (_clickCount == 1) {
           debugPrint('[BluetoothKeyService] Clic Singolo confermato (<350ms) -> +1 SQUADRA A');
-          onFeedback?.('teamA', '+1 SQUADRA A');
+          onFeedback?.call('teamA', '+1 SQUADRA A');
           onTeamAPoint();
         }
         _clickCount = 0;
@@ -201,7 +201,7 @@ class BluetoothKeyService {
       _debounceTimer = null;
       _clickCount = 0;
       debugPrint('[BluetoothKeyService] Doppio Clic confermato (<350ms) -> +1 SQUADRA B');
-      onFeedback?.('teamB', '+1 SQUADRA B');
+      onFeedback?.call('teamB', '+1 SQUADRA B');
       onTeamBPoint();
     }
   }
@@ -212,7 +212,7 @@ class BluetoothKeyService {
     _debounceTimer = null;
     _clickCount = 0;
     debugPrint('[BluetoothKeyService] Azione UNDO confermata');
-    onFeedback?.('undo', 'PUNTO ANNULLATO (UNDO)');
+    onFeedback?.call('undo', 'PUNTO ANNULLATO (UNDO)');
     onUndo();
   }
 

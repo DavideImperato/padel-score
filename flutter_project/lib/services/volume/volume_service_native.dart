@@ -22,15 +22,15 @@ class VolumeServiceNative implements VolumeService {
       _isListening = true;
 
       // Nasconde la barra di volume di sistema per non oscurare il tabellone
-      VolumeController.instance.showSystemUI = false;
+      VolumeController().showSystemUI = false;
 
       // Legge il volume iniziale di riferimento
-      VolumeController.instance.getVolume().then((v) {
+      VolumeController().getVolume().then((v) {
         _lastVolume = v;
       }).catchError((_) {});
 
       // Ascolta le variazioni del volume hardware del dispositivo
-      VolumeController.instance.addListener((volume) {
+      VolumeController().listener((volume) {
         if (!_isListening) return;
 
         if (_lastVolume != null) {
@@ -53,7 +53,7 @@ class VolumeServiceNative implements VolumeService {
   void dispose() {
     _isListening = false;
     try {
-      VolumeController.instance.removeListener();
+      VolumeController().removeListener();
     } catch (_) {}
   }
 }

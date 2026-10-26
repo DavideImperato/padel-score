@@ -103,6 +103,8 @@ class SetScore {
 /// Snapshot immutabile dello stato della partita, fondamentale per il sistema Undo
 @immutable
 class PadelMatchSnapshot {
+  // Differenzia un campo omesso da un null passato esplicitamente a copyWith.
+  static const Object _notProvided = Object();
   /// Punti del game corrente: 0 -> 0, 1 -> 15, 2 -> 30, 3 -> 40, 4 -> Vantaggio (AV)
   final int rawPointsA;
   final int rawPointsB;
@@ -238,8 +240,8 @@ class PadelMatchSnapshot {
     bool? isTieBreak,
     int? tieBreakPointsA,
     int? tieBreakPointsB,
-    int? tieBreakInitialRotationIndex,
-    Team? matchWinner,
+    Object? tieBreakInitialRotationIndex = _notProvided,
+    Object? matchWinner = _notProvided,
     String? lastEventMessage,
   }) {
     return PadelMatchSnapshot(
@@ -255,9 +257,12 @@ class PadelMatchSnapshot {
       isTieBreak: isTieBreak ?? this.isTieBreak,
       tieBreakPointsA: tieBreakPointsA ?? this.tieBreakPointsA,
       tieBreakPointsB: tieBreakPointsB ?? this.tieBreakPointsB,
-      tieBreakInitialRotationIndex:
-          tieBreakInitialRotationIndex ?? this.tieBreakInitialRotationIndex,
-      matchWinner: matchWinner ?? this.matchWinner,
+      tieBreakInitialRotationIndex: identical(tieBreakInitialRotationIndex, _notProvided)
+          ? this.tieBreakInitialRotationIndex
+          : tieBreakInitialRotationIndex as int?,
+      matchWinner: identical(matchWinner, _notProvided)
+          ? this.matchWinner
+          : matchWinner as Team?,
       lastEventMessage: lastEventMessage ?? this.lastEventMessage,
     );
   }

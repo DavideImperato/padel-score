@@ -2,21 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:padel_scorebot/models/padel_match_state.dart';
 import 'package:padel_scorebot/providers/padel_score_provider.dart';
-import 'package:padel_scorebot/services/tts_service.dart';
-
-class MockTtsService extends TtsService {
-  final List<String> spoken = [];
-
-  MockTtsService() : super._internal();
-
-  @override
-  Future<void> init() async {}
-
-  @override
-  Future<void> speak(String text) async {
-    spoken.add(text);
-  }
-}
+import 'support/fake_tts_service.dart';
 
 PadelScoreProvider createTestProvider({
   int firstServerPlayerId = 1,
@@ -28,7 +14,7 @@ PadelScoreProvider createTestProvider({
   String p3 = 'Paolo',
   String p4 = 'Marco',
 }) {
-  final mockTts = MockTtsService();
+  final mockTts = FakeTtsService();
   final provider = PadelScoreProvider(ttsService: mockTts);
   provider.setupMatch(
     team1: 'Squadra A',
@@ -50,6 +36,42 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  group('Stato nullable e configurazione — Fase 2B.3A.1', () {
+    test('copyWith conserva gli stati nullable omessi', () {
+      final previous = PadelMatchSnapshot.initial().copyWith(
+        tieBreakInitialRotationIndex: 3,
+        matchWinner: Team.teamB,
+      );
+      final next = previous.copyWith(rawPointsA: 1);
+      expect(next.tieBreakInitialRotationIndex, 3);
+      expect(next.matchWinner, Team.teamB);
+    });
+
+    test('copyWith permette di azzerare esplicitamente entrambi i nullable', () {
+      final previous = PadelMatchSnapshot.initial().copyWith(
+        tieBreakInitialRotationIndex: 3,
+        matchWinner: Team.teamB,
+      );
+      final next = previous.copyWith(
+        tieBreakInitialRotationIndex: null,
+        matchWinner: null,
+      );
+      expect(next.tieBreakInitialRotationIndex, isNull);
+      expect(next.matchWinner, isNull);
+    });
+
+    test('il setup memorizza realmente la modalità Star Point', () {
+      final provider = createTestProvider(
+        goldenPoint: true,
+        advantagesBeforeGoldenPoint: 2,
+      );
+      expect(provider.isGoldenPoint, isTrue);
+      expect(provider.advantagesBeforeGoldenPoint, 2);
+      expect(provider.snapshot.isGoldenPointSituation(true, 2), isFalse);
+      provider.dispose();
+    });
   });
 
   group('PADEL SCORE ENGINE — FASE 2B.3A FLUTTER TESTS', () {

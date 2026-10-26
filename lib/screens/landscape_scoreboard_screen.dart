@@ -249,7 +249,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
               _buildTopFloatingControls(context, provider),
 
               // OVERLAY NOTIFICHE (Tie-Break, Punto d'Oro, Vittoria Match)
-              if (snapshot.isTieBreak || snapshot.isGoldenPointSituation(provider.isGoldenPoint) || provider.isMatchOver)
+              if (snapshot.isTieBreak || snapshot.isGoldenPointSituation(provider.isGoldenPoint, provider.advantagesBeforeGoldenPoint) || provider.isMatchOver)
                 _buildMatchStatusBanner(provider, snapshot),
 
               // OVERLAY TIMER CAMBIO CAMPO (90s / 120s FIP)
@@ -343,7 +343,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
               const SizedBox(width: 4),
 
               GestureDetector(
-                onTap: () => provider.setGoldenPoint(!provider.isGoldenPoint),
+                // La modalità sportiva è informativa: si sceglie nel setup.
+                onTap: null,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -364,7 +365,11 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        provider.isGoldenPoint ? 'PUNTO D\'ORO' : 'VANTAGGI CLASSICI',
+                        !provider.isGoldenPoint
+                            ? 'VANTAGGI CLASSICI'
+                            : provider.advantagesBeforeGoldenPoint == 2
+                                ? 'STAR POINT'
+                                : 'PUNTO D\'ORO',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w900,
@@ -887,8 +892,10 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     } else if (snapshot.isTieBreak) {
       message = '⚡ TIE-BREAK A 7 PUNTI ⚡';
       bannerColor = const Color(0xFF8B5CF6);
-    } else if (snapshot.isGoldenPointSituation(provider.isGoldenPoint)) {
-      message = '🔥 40 PARI: PUNTO D\'ORO DECISIVO! 🔥';
+    } else if (snapshot.isGoldenPointSituation(provider.isGoldenPoint, provider.advantagesBeforeGoldenPoint)) {
+      message = provider.advantagesBeforeGoldenPoint == 2
+          ? '🔥 40 PARI: STAR POINT DECISIVO! 🔥'
+          : '🔥 40 PARI: PUNTO D\'ORO DECISIVO! 🔥';
       bannerColor = const Color(0xFFEF4444);
     }
 

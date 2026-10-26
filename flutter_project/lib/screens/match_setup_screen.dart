@@ -22,7 +22,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   late TextEditingController _player4Controller;
 
   int _selectedFirstServerId = 1; // 1, 2, 3 o 4
-  bool _isGoldenPoint = true;
+  // 0 = vantaggi tradizionali, 1 = punto d'oro, 2 = Star Point.
+  int _scoringMode = 1;
   int _bestOfSets = 3;
 
   @override
@@ -35,7 +36,10 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     _player2Controller = TextEditingController(text: provider.player2Name);
     _player3Controller = TextEditingController(text: provider.player3Name);
     _player4Controller = TextEditingController(text: provider.player4Name);
-    _isGoldenPoint = provider.isGoldenPoint;
+    _selectedFirstServerId = provider.firstServerPlayerId;
+    _scoringMode = !provider.isGoldenPoint
+        ? 0
+        : (provider.advantagesBeforeGoldenPoint >= 2 ? 2 : 1);
     _bestOfSets = provider.bestOfSets;
   }
 
@@ -64,7 +68,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       player3: _player3Controller.text,
       player4: _player4Controller.text,
       firstServerPlayerId: _selectedFirstServerId,
-      goldenPoint: _isGoldenPoint,
+      goldenPoint: _scoringMode != 0,
+      advantagesBeforeGoldenPoint: _scoringMode == 2 ? 2 : 0,
       bestOfSets: _bestOfSets,
     );
 
@@ -432,20 +437,31 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       ),
       child: Column(
         children: [
-          // Switch Punto d'Oro
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text(
-              'Regola Punto d\'Oro (Golden Point)',
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Sistema di punteggio',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
             ),
-            subtitle: const Text(
-              'Sul 40-40 chi conquista il punto successivo vince direttamente il Game.',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-            ),
-            value: _isGoldenPoint,
-            activeColor: const Color(0xFFCCFF00),
-            onChanged: (val) => setState(() => _isGoldenPoint = val),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _scoringChoiceChip(0, 'Vantaggi tradizionali'),
+              _scoringChoiceChip(1, 'Punto d\'Oro'),
+              _scoringChoiceChip(2, 'Star Point FIP 2026'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _scoringMode == 0
+                ? 'Sul 40-40 si continua con vantaggio e parità, fino a due punti consecutivi.'
+                : _scoringMode == 1
+                    ? 'Sul primo 40-40 il punto successivo decide il game.'
+                    : 'Dopo due cicli di vantaggio e ritorno alla parità, il punto successivo decide il game.',
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
           ),
           const Divider(color: Color(0xFF1E293B)),
           // Formato Set
@@ -469,6 +485,22 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _scoringChoiceChip(int mode, String label) {
+    final selected = _scoringMode == mode;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      selectedColor: const Color(0xFFCCFF00),
+      backgroundColor: const Color(0xFF1E293B),
+      labelStyle: TextStyle(
+        color: selected ? Colors.black : Colors.white70,
+        fontWeight: selected ? FontWeight.w900 : FontWeight.bold,
+        fontSize: 12,
+      ),
+      onSelected: (_) => setState(() => _scoringMode = mode),
     );
   }
 
