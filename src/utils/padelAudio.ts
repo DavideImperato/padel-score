@@ -8,6 +8,8 @@ class PadelAudioService {
   private speed: number = 0.95; // Cadenza arbitrale naturale
   private cachedItalianVoice: SpeechSynthesisVoice | null = null;
   private isAudioUnlocked: boolean = false;
+  // Ignora gli eventi tardivi degli annunci sostituiti da punti piu recenti.
+  private announcementSequence: number = 0;
 
   constructor() {
     this.initVoices();
@@ -85,8 +87,10 @@ class PadelAudioService {
   public setVoiceMuted(muted: boolean) {
     this.isVoiceMuted = muted;
     if (muted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      ++this.announcementSequence;
       try {
         window.speechSynthesis.cancel();
+        (window as any).__padelUtterances = [];
       } catch {}
     }
   }
@@ -139,7 +143,9 @@ class PadelAudioService {
         synth.resume();
       }
 
-      // Interrompi annunci precedenti
+      // Ogni nuovo punteggio rende obsoleti gli annunci precedenti.
+      // cancel() puo generare errori "interrupted"/"canceled": sono previsti.
+      const sequence = ++this.announcementSequence;
       synth.cancel();
 
       const cleanText = text.trim();
@@ -159,8 +165,8 @@ class PadelAudioService {
 
       // Mantieni riferimento globale per prevenire garbage collection su Chrome/V8
       const w = window as any;
-      w.__padelUtterances = w.__padelUtterances || [];
-      w.__padelUtterances.push(utterance);
+      // Evita riferimenti accumulati a utterance cancellate senza evento onend.
+      w.__padelUtterances = [utterance];
 
       const cleanup = () => {
         if (w.__padelUtterances) {
@@ -170,18 +176,38 @@ class PadelAudioService {
       };
 
       utterance.onend = cleanup;
-      utterance.onerror = (e) => {
+      utterance.onerror = (e: SpeechSynthesisErrorEvent) => {
         cleanup();
-        console.warn('SpeechSynthesis error:', e);
-        // Se la voce specifica genera errore, riprova senza forzare la voce
-        if (utterance.voice) {
+
+        // Il browser notifica la cancellazione anche quando e richiesta
+        // intenzionalmente dal punteggio successivo o dal pulsante Muto.
+        // Non e un errore e non deve rilanciare un audio ormai obsoleto.
+        if (sequence !== this.announcementSequence || this.isVoiceMuted) return;
+        const reason = e.error || 'unknown';
+        if (reason === 'interrupted' || reason === 'canceled') return;
+
+        console.warn('SpeechSynthesis error:', reason);
+
+        // Riprova una sola volta senza voce forzata soltanto per problemi
+        // della voce selezionata. Non ritentare per restrizioni del browser.
+        if (utterance.voice && (reason === 'voice-unavailable' || reason === 'synthesis-failed')) {
           try {
             const fallback = new SpeechSynthesisUtterance(cleanText);
             fallback.lang = 'it-IT';
             fallback.rate = this.speed;
+            fallback.pitch = 1.0;
             fallback.volume = this.volume;
+            w.__padelUtterances = [fallback];
+            const releaseFallback = () => {
+              const idx = w.__padelUtterances?.indexOf(fallback) ?? -1;
+              if (idx >= 0) w.__padelUtterances.splice(idx, 1);
+            };
+            fallback.onend = releaseFallback;
+            fallback.onerror = releaseFallback;
             synth.speak(fallback);
-          } catch {}
+          } catch {
+            // Il punteggio continua a funzionare anche senza sintesi vocale.
+          }
         }
       };
 
