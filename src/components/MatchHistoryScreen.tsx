@@ -17,6 +17,11 @@ export const MatchHistoryScreen: React.FC<Props> = ({ onBack, onResumeInterrupte
   const [openedInterrupted, setOpenedInterrupted] = useState<string | null>(null);
   const [filters, setFilters] = useState<HistoryFilters>({ ...EMPTY_HISTORY_FILTERS });
   const [manualCsv, setManualCsv] = useState<string | null>(null);
+  const [section, setSection] = useState<'finished' | 'interrupted'>('finished');
+  const [interrupted, setInterrupted] = useState<InterruptedMatch[]>(() => loadInterruptedMatches(window.localStorage));
+  const [pendingInterruptedDelete, setPendingInterruptedDelete] = useState<InterruptedMatch | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ArchivedMatch | null>(null);
+  const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
   const directory = readPlayerDirectory(window.localStorage) ?? { version: 1 as const, players: [], pairs: [] };
   const visibleFinished = filterFinishedMatches(items, filters, directory);
   const visibleInterrupted = filterInterruptedMatches(interrupted, filters, directory);
@@ -41,12 +46,6 @@ export const MatchHistoryScreen: React.FC<Props> = ({ onBack, onResumeInterrupte
     document.body.appendChild(anchor); anchor.click(); anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const [section, setSection] = useState<'finished' | 'interrupted'>('finished');
-  const [interrupted, setInterrupted] = useState<InterruptedMatch[]>(() => loadInterruptedMatches(window.localStorage));
-  const [pendingInterruptedDelete, setPendingInterruptedDelete] = useState<InterruptedMatch | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<ArchivedMatch | null>(null);
-  const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
-
   const requestDelete = (item: ArchivedMatch) => {
     setFeedback(null);
     setPendingDelete(item);
