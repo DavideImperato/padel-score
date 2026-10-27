@@ -11,6 +11,7 @@ interface MatchSetupScreenProps {
   onOpenRemoteHelper: () => void;
   onOpenHistory: () => void;
   onOpenPlayers: () => void;
+  onOpenStatistics: () => void;
 }
 
 export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
@@ -21,6 +22,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
   onOpenRemoteHelper,
   onOpenHistory,
   onOpenPlayers,
+  onOpenStatistics,
 }) => {
   const [team1, setTeam1] = useState(currentSettings.teamAName);
   const [team2, setTeam2] = useState(currentSettings.teamBName);
@@ -124,7 +126,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
   return (
     <div className="min-h-screen w-full bg-[#070B14] text-white flex flex-col font-sans select-none overflow-y-auto">
       {/* Top Navigation */}
-      <header className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
+      <header className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-[#CCFF00] text-slate-950 shadow-md shadow-[#CCFF00]/30">
             <Trophy className="w-5 h-5" />
@@ -136,7 +138,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* If match is in progress, allow jumping back to scoreboard */}
           {isMatchInProgress && onGoToScoreboard && (
             <button
@@ -151,6 +153,10 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
           <button type="button" onClick={onOpenPlayers}
             className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-slate-800">
             Giocatori e coppie
+          </button>
+          <button type="button" onClick={onOpenStatistics}
+            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-slate-800">
+            Statistiche
           </button>
           <button type="button" onClick={onOpenHistory}
             className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs font-bold text-[#CCFF00] hover:bg-slate-800">

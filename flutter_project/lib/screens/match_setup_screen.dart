@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
 import 'landscape_scoreboard_screen.dart';
 import 'match_history_screen.dart';
+import 'match_statistics_screen.dart';
 import 'player_directory_screen.dart';
 import '../services/player_directory.dart';
 
@@ -265,6 +266,13 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                       ),
                       icon: const Icon(Icons.history, color: Color(0xFFCCFF00)),
                       label: const Text('STORICO PARTITE', style: TextStyle(color: Colors.white)),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const MatchStatisticsScreen()),
+                      ),
+                      icon: const Icon(Icons.bar_chart, color: Color(0xFF4ADE80)),
+                      label: const Text('STATISTICHE', style: TextStyle(color: Colors.white)),
                     ),
                     const SizedBox(height: 18),
                     // Sezione 1: Coppie e Giocatori (2 Card affiancate o stacked)
