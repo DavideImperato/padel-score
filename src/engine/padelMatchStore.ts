@@ -39,6 +39,16 @@ export class PadelMatchStore {
     };
   }
 
+  /** Ripristina stato e cronologia Undo senza generare eventi o annunci arbitrali. */
+  public restoreMatch(settings: MatchSettings, saved: MatchStoreState): void {
+    this.settings = { ...settings };
+    this.state = {
+      snapshot: { ...saved.snapshot, completedSets: [...saved.snapshot.completedSets] },
+      history: saved.history.map(s => ({ ...s, completedSets: [...s.completedSets] })),
+    };
+    this.notify();
+  }
+
   private normalizePlayerId(id: number): PlayerId {
     if (id === 1 || id === 2 || id === 3 || id === 4) return id;
     return 1;

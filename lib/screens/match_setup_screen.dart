@@ -92,6 +92,47 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final recovery = context.watch<PadelScoreProvider>();
+    if (recovery.hasSavedMatch) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF070B14),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 540),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('PARTITA SALVATA', style: TextStyle(
+                    color: Color(0xFFCCFF00), fontSize: 24, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  const Text('Abbiamo trovato una partita sul dispositivo. Puoi recuperare punteggio, battitore, cronometro e cronologia Undo.',
+                    style: TextStyle(color: Colors.white70, fontSize: 16)),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (recovery.resumeSavedMatch()) {
+                        Navigator.of(context).pushReplacement(MaterialPageRoute(
+                          builder: (_) => const LandscapeScoreboardScreen(),
+                        ));
+                      }
+                    },
+                    child: const Text('RIPRENDI PARTITA'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: recovery.discardSavedMatch,
+                    child: const Text('Scarta salvataggio e torna al setup'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF070B14),
       appBar: AppBar(

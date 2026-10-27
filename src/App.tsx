@@ -9,6 +9,7 @@ import {
   ScoringEvent,
 } from './engine/padelScoringEngine';
 import { PadelMatchStore } from './engine/padelMatchStore';
+import { loadCheckpoint, saveCheckpoint, clearCheckpoint, MatchCheckpoint, MatchRuntime } from './engine/matchPersistence';
 import { padelAudio } from './utils/padelAudio';
 import { BluetoothKeyListener } from './utils/bluetoothListener';
 import { TeamColumn } from './components/TeamColumn';
@@ -84,6 +85,13 @@ export default function App() {
     store.getState
   );
 
+  // Un checkpoint esistente non viene mai sovrascritto prima della scelta Riprendi/Scarta.
+  const [recoveryCandidate, setRecoveryCandidate] = useState<MatchCheckpoint | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return loadCheckpoint(window.localStorage);
+  });
+  const persistenceActiveRef = useRef(false);
+
   // Modal di reset personalizzata (elimina window.confirm bloccato in iframe)
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
@@ -112,6 +120,51 @@ export default function App() {
     return (window.innerWidth <= 330 && window.innerHeight <= 380) || (window.innerWidth <= 380 && window.innerHeight <= 330);
   });
   const [lastLogs, setLastLogs] = useState<Array<{ text: string; time: string; type: 'up1' | 'up2' | 'down' | 'other' }>>([]);
+
+  const runtimeRef = useRef<MatchRuntime>({
+    matchSeconds, isTimerRunning, isSidesSwapped, breakSecondsLeft, isBreakActive,
+    view: currentView === 'summary' ? 'summary' : 'scoreboard',
+  });
+  runtimeRef.current = {
+    matchSeconds, isTimerRunning, isSidesSwapped, breakSecondsLeft, isBreakActive,
+    view: currentView === 'summary' ? 'summary' : 'scoreboard',
+  };
+
+  const persistCurrentMatch = useCallback((runtime?: MatchRuntime) => {
+    if (!persistenceActiveRef.current || typeof window === 'undefined') return;
+    saveCheckpoint(window.localStorage, store.getSettings(), store.getState(), runtime ?? runtimeRef.current);
+  }, [store]);
+
+  // Salvataggio sincrono a ogni mutazione transazionale: punti, Undo e servizio.
+  useEffect(() => store.subscribe(() => persistCurrentMatch()), [store, persistCurrentMatch]);
+  // Stato UI e cronometro: una scrittura al secondo mentre il match è attivo.
+  useEffect(() => { persistCurrentMatch(); }, [matchSeconds, isTimerRunning, isSidesSwapped,
+    breakSecondsLeft, isBreakActive, currentView, settings, persistCurrentMatch]);
+
+  const resumeCheckpoint = () => {
+    if (!recoveryCandidate) return;
+    const saved = recoveryCandidate;
+    store.restoreMatch(saved.settings, saved.state);
+    setSettings(saved.settings);
+    setMatchSeconds(saved.runtime.matchSeconds);
+    setIsTimerRunning(saved.runtime.isTimerRunning && !saved.state.snapshot.matchWinner);
+    setIsSidesSwapped(saved.runtime.isSidesSwapped);
+    setBreakSecondsLeft(saved.runtime.breakSecondsLeft);
+    setIsBreakActive(saved.runtime.isBreakActive && saved.runtime.breakSecondsLeft > 0);
+    setCurrentView(saved.state.snapshot.matchWinner || saved.runtime.view === 'summary' ? 'summary' : 'scoreboard');
+    setRecoveryCandidate(null);
+    persistenceActiveRef.current = true;
+  };
+
+  const discardCheckpoint = () => {
+    if (typeof window !== 'undefined') clearCheckpoint(window.localStorage);
+    setRecoveryCandidate(null);
+  };
+
+  const stopCheckpoint = () => {
+    persistenceActiveRef.current = false;
+    if (typeof window !== 'undefined') clearCheckpoint(window.localStorage);
+  };
 
   // Feedback visivo a schermo per telecomando Bluetooth
   const [remoteFeedback, setRemoteFeedback] = useState<{ text: string; color: string } | null>(null);
@@ -443,6 +496,7 @@ export default function App() {
     setIsTimerRunning(true);
 
     store.resetMatch();
+    stopCheckpoint();
     setCurrentView('setup');
     padelAudio.speak('Partita azzerata. Nuova configurazione match.');
   }, [store, stopBreakTimer]);
@@ -527,6 +581,9 @@ export default function App() {
     setIsTimerRunning(true); // Cronometro attivo automaticamente da 0
 
     const initialPlayer = store.startNewMatch(newSettings);
+    persistenceActiveRef.current = true;
+    persistCurrentMatch({ matchSeconds: 0, isTimerRunning: true, isSidesSwapped: false,
+      breakSecondsLeft: 0, isBreakActive: false, view: 'scoreboard' });
     const initialTeam: Team = getTeamForPlayerId(initialPlayer);
 
     // Switch screen to scoreboard!
@@ -592,6 +649,25 @@ export default function App() {
   const currentServingPlayer = getCurrentServingPlayer();
   const isMatchInProgress = snapshot.completedSets.length > 0 || snapshot.currentGamesA > 0 || snapshot.currentGamesB > 0 || snapshot.rawPointsA > 0 || snapshot.rawPointsB > 0;
 
+  // Recupero esplicito, prima di poter iniziare una nuova partita.
+  if (recoveryCandidate) {
+    return (
+      <div className="min-h-[100dvh] bg-zinc-950 text-white flex items-center justify-center p-5">
+        <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl space-y-4">
+          <h1 className="text-xl font-bold text-lime-300">Partita salvata</h1>
+          <p className="text-sm text-zinc-300">È stata trovata una partita sul dispositivo. Vuoi riprenderla con punteggio, battitore, cronometro e cronologia Undo?</p>
+          <p className="text-sm font-semibold">{recoveryCandidate.settings.teamAName} vs {recoveryCandidate.settings.teamBName}</p>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={resumeCheckpoint}
+              className="rounded-xl bg-lime-300 text-zinc-950 font-bold px-5 py-3">Riprendi partita</button>
+            <button type="button" onClick={discardCheckpoint}
+              className="rounded-xl bg-zinc-700 text-white px-5 py-3">Scarta salvataggio</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // RENDER 1: SCHERMATA INIZIALE SETUP MATCH COME VISTA PRINCIPALE ("/")
   if (currentView === 'setup') {
     return (
@@ -633,6 +709,7 @@ export default function App() {
           setMatchSeconds(0);
           setIsTimerRunning(true);
           store.resetMatch();
+          stopCheckpoint();
           setCurrentView('setup');
         }}
         onReturnToScoreboard={() => setCurrentView('scoreboard')}
@@ -705,6 +782,7 @@ export default function App() {
                 setMatchSeconds(0);
                 setIsTimerRunning(true);
                 store.resetMatch();
+                stopCheckpoint();
                 setCurrentView('setup');
               }}
               className="ml-2 px-2.5 py-1 rounded bg-black/40 hover:bg-black/60 text-xs font-bold transition-colors cursor-pointer"

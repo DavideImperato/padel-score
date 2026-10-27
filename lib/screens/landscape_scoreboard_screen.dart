@@ -41,6 +41,10 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
 
     // 2. Inizializzazione del servizio telecomando Bluetooth con debounce e feedback visivo
     final provider = context.read<PadelScoreProvider>();
+    _elapsedSeconds = provider.elapsedSeconds;
+    _isTimerRunning = provider.isTimerRunning;
+    _breakSecondsLeft = provider.breakSecondsLeft;
+    _isBreakActive = provider.isBreakActive;
     _keyService = BluetoothKeyService(
       onTeamAPoint: () {
         HapticFeedback.heavyImpact();
@@ -63,6 +67,9 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
 
     // 3. Avvio cronometro partita
     _startMatchTimer();
+    if (_isBreakActive && _breakSecondsLeft > 0) {
+      _startBreakTimer(duration: _breakSecondsLeft);
+    }
   }
 
   // Feedback visivo a schermo per azioni da telecomando/tastiera
@@ -96,10 +103,16 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
   void _startMatchTimer() {
     _matchTimer?.cancel();
     _matchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_isTimerRunning && mounted) {
-        setState(() {
-          _elapsedSeconds++;
-        });
+      if (!mounted) return;
+      final provider = context.read<PadelScoreProvider>();
+      if (provider.isMatchOver && _isTimerRunning) {
+        setState(() => _isTimerRunning = false);
+        provider.updateClock(_elapsedSeconds, false,
+          breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+      } else if (_isTimerRunning) {
+        setState(() => _elapsedSeconds++);
+        provider.updateClock(_elapsedSeconds, true,
+          breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
       }
     });
   }
@@ -111,6 +124,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
       _breakSecondsLeft = duration;
       _isBreakActive = true;
     });
+    context.read<PadelScoreProvider>().updateClock(_elapsedSeconds, _isTimerRunning,
+      breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
 
     _breakTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
@@ -118,6 +133,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         setState(() {
           _breakSecondsLeft--;
         });
+        context.read<PadelScoreProvider>().updateClock(_elapsedSeconds, _isTimerRunning,
+          breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
       } else {
         _stopBreakTimer();
         HapticFeedback.vibrate();
@@ -133,6 +150,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         _isBreakActive = false;
         _breakSecondsLeft = 0;
       });
+      context.read<PadelScoreProvider>().updateClock(_elapsedSeconds, _isTimerRunning);
     }
   }
 
@@ -390,6 +408,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                   setState(() {
                     _isTimerRunning = !_isTimerRunning;
                   });
+                  provider.updateClock(_elapsedSeconds, _isTimerRunning,
+                    breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -953,9 +973,12 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
             child: const Text('Azzera Tutto', style: TextStyle(color: Colors.white)),
             onPressed: () {
               provider.resetMatch();
+              _stopBreakTimer();
               setState(() {
                 _elapsedSeconds = 0;
+                _isTimerRunning = true;
               });
+              provider.updateClock(0, true);
               Navigator.of(ctx).pop();
             },
           ),

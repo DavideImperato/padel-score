@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/padel_match_state.dart';
 import '../services/tts_service.dart';
+import '../services/match_checkpoint.dart';
 
 class PadelScoreProvider extends ChangeNotifier {
   final TtsService _ttsService;
@@ -29,6 +31,116 @@ class PadelScoreProvider extends ChangeNotifier {
   bool _decidingMatchTieBreak = false;
   int _decidingTieBreakPoints = 10; // Tie-break decisivo: 7 oppure 10 punti
   bool _shortSets = false; // Mini-set FIP: 4 game, tie-break sul 4-4
+
+  // Checkpoint offline: serializza in coda le scritture, senza invertire i punti rapidi.
+  bool _activeCheckpoint = false;
+  Map<String, dynamic>? _pendingRecovery;
+  Future<void> _writeQueue = Future<void>.value();
+  int _elapsedSeconds = 0;
+  bool _isTimerRunning = true;
+  int _breakSecondsLeft = 0;
+  bool _isBreakActive = false;
+
+  bool get hasSavedMatch => _pendingRecovery != null;
+  int get elapsedSeconds => _elapsedSeconds;
+  bool get isTimerRunning => _isTimerRunning;
+  int get breakSecondsLeft => _breakSecondsLeft;
+  bool get isBreakActive => _isBreakActive;
+
+  Map<String, dynamic> _currentCheckpoint() => {
+    'settings': {
+      'teamAName': _teamAName, 'teamBName': _teamBName,
+      'player1Name': _player1Name, 'player2Name': _player2Name,
+      'player3Name': _player3Name, 'player4Name': _player4Name,
+      'firstServerPlayerId': _firstServerPlayerId,
+      'isGoldenPoint': _isGoldenPoint,
+      'advantagesBeforeGoldenPoint': _advantagesBeforeGoldenPoint,
+      'bestOfSets': _bestOfSets, 'shortSets': _shortSets,
+      'decidingMatchTieBreak': _decidingMatchTieBreak,
+      'decidingTieBreakPoints': _decidingTieBreakPoints,
+    },
+    'snapshot': MatchCheckpointCodec.snapshotToJson(_currentSnapshot),
+    'history': _history.map(MatchCheckpointCodec.snapshotToJson).toList(),
+    'runtime': {
+      'elapsedSeconds': _elapsedSeconds, 'isTimerRunning': _isTimerRunning,
+      'isSidesSwapped': _isSidesSwapped,
+      'breakSecondsLeft': _breakSecondsLeft, 'isBreakActive': _isBreakActive,
+    },
+  };
+
+  Future<void> flushCheckpoint() => _writeQueue;
+
+  void _scheduleCheckpoint() {
+    if (!_activeCheckpoint) return;
+    final encoded = MatchCheckpointCodec.encode(_currentCheckpoint());
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(MatchCheckpointCodec.key, encoded);
+      } catch (_) { /* storage non disponibile: partita continua in memoria */ }
+    });
+  }
+
+  @override
+  void notifyListeners() {
+    _scheduleCheckpoint();
+    super.notifyListeners();
+  }
+
+  /// Aggiorna l'orologio senza ricostruire l'intero tabellone ad ogni secondo.
+  void updateClock(int seconds, bool running, {int breakSeconds = 0, bool breakActive = false}) {
+    _elapsedSeconds = seconds;
+    _isTimerRunning = running;
+    _breakSecondsLeft = breakSeconds;
+    _isBreakActive = breakActive;
+    _scheduleCheckpoint();
+  }
+
+  /// Ripristino esplicito: nessun annuncio TTS e nessun nuovo punto.
+  bool resumeSavedMatch() {
+    final checkpoint = _pendingRecovery;
+    if (checkpoint == null) return false;
+    try {
+      final config = Map<String, dynamic>.from(checkpoint['settings'] as Map);
+      final runtime = Map<String, dynamic>.from(checkpoint['runtime'] as Map);
+      final snap = MatchCheckpointCodec.snapshotFromJson(Map<String, dynamic>.from(checkpoint['snapshot'] as Map));
+      final history = (checkpoint['history'] as List).map((e) => MatchCheckpointCodec.snapshotFromJson(Map<String, dynamic>.from(e as Map))).toList();
+      _configurationVersion++;
+      _teamAName = config['teamAName'] as String;
+      _teamBName = config['teamBName'] as String;
+      _player1Name = config['player1Name'] as String;
+      _player2Name = config['player2Name'] as String;
+      _player3Name = config['player3Name'] as String;
+      _player4Name = config['player4Name'] as String;
+      _firstServerPlayerId = config['firstServerPlayerId'] as int;
+      _isGoldenPoint = config['isGoldenPoint'] as bool;
+      _advantagesBeforeGoldenPoint = config['advantagesBeforeGoldenPoint'] as int;
+      _bestOfSets = config['bestOfSets'] as int;
+      _shortSets = config['shortSets'] as bool;
+      _decidingMatchTieBreak = config['decidingMatchTieBreak'] as bool;
+      _decidingTieBreakPoints = config['decidingTieBreakPoints'] as int;
+      _currentSnapshot = snap;
+      _history..clear()..addAll(history);
+      _elapsedSeconds = runtime['elapsedSeconds'] as int;
+      _isTimerRunning = runtime['isTimerRunning'] == true && snap.matchWinner == null;
+      _isSidesSwapped = runtime['isSidesSwapped'] == true;
+      _breakSecondsLeft = runtime['breakSecondsLeft'] as int;
+      _isBreakActive = runtime['isBreakActive'] == true && _breakSecondsLeft > 0;
+      _pendingRecovery = null;
+      _activeCheckpoint = true;
+      notifyListeners();
+      return true;
+    } catch (_) { return false; }
+  }
+
+  void discardSavedMatch() {
+    _pendingRecovery = null;
+    _activeCheckpoint = false;
+    _writeQueue = _writeQueue.then((_) async {
+      try { await (await SharedPreferences.getInstance()).remove(MatchCheckpointCodec.key); } catch (_) {}
+    });
+    super.notifyListeners();
+  }
 
   // Evita che il caricamento asincrono delle preferenze sostituisca
   // le impostazioni o lo snapshot dopo una nuova partita.
@@ -107,6 +219,12 @@ class PadelScoreProvider extends ChangeNotifier {
     int decidingTieBreakPoints = 10,
   }) {
     _configurationVersion++;
+    _pendingRecovery = null;
+    _activeCheckpoint = true;
+    _elapsedSeconds = 0;
+    _isTimerRunning = true;
+    _breakSecondsLeft = 0;
+    _isBreakActive = false;
     _teamAName = team1.trim().isEmpty ? 'Squadra 1' : team1.trim();
     _teamBName = team2.trim().isEmpty ? 'Squadra 2' : team2.trim();
     _player1Name = player1.trim().isEmpty ? 'Giocatore 1' : player1.trim();
@@ -151,6 +269,7 @@ class PadelScoreProvider extends ChangeNotifier {
       _shortSets = prefs.getBool('shortSets') ?? false;
       _decidingMatchTieBreak = prefs.getBool('decidingMatchTieBreak') ?? false;
       _decidingTieBreakPoints = prefs.getInt('decidingTieBreakPoints') == 7 ? 7 : 10;
+      _bestOfSets = prefs.getInt('bestOfSets') ?? 3;
       _teamAName = prefs.getString('teamAName') ?? 'Gli Smashtori';
       _teamBName = prefs.getString('teamBName') ?? 'I Timemasters';
       _player1Name = prefs.getString('player1Name') ?? 'Mario Rossi';
@@ -164,6 +283,7 @@ class PadelScoreProvider extends ChangeNotifier {
         initialServer: initialTeam,
         initialRotationIndex: 0,
       );
+      _pendingRecovery = MatchCheckpointCodec.decode(prefs.getString(MatchCheckpointCodec.key));
       notifyListeners();
     } catch (_) {}
   }
@@ -176,6 +296,7 @@ class PadelScoreProvider extends ChangeNotifier {
       await prefs.setBool('shortSets', _shortSets);
       await prefs.setBool('decidingMatchTieBreak', _decidingMatchTieBreak);
       await prefs.setInt('decidingTieBreakPoints', _decidingTieBreakPoints);
+      await prefs.setInt('bestOfSets', _bestOfSets);
       await prefs.setString('teamAName', _teamAName);
       await prefs.setString('teamBName', _teamBName);
       await prefs.setString('player1Name', _player1Name);
@@ -544,6 +665,10 @@ class PadelScoreProvider extends ChangeNotifier {
   void resetMatch() {
     _history.clear();
     _isSidesSwapped = false;
+    _elapsedSeconds = 0;
+    _isTimerRunning = true;
+    _breakSecondsLeft = 0;
+    _isBreakActive = false;
     final initialTeam = getTeamForPlayerId(_firstServerPlayerId);
     _currentSnapshot = PadelMatchSnapshot.initial(
       initialServer: initialTeam,
