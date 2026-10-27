@@ -22,6 +22,7 @@ class PadelScoreProvider extends ChangeNotifier {
   String _player2Name = 'Luigi Verdi';
   String _player3Name = 'Paolo Bianchi';
   String _player4Name = 'Marco Neri';
+  List<String?> _playerIds = [null, null, null, null];
 
   // Identificativo del primo battitore (1, 2, 3 o 4)
   int _firstServerPlayerId = 1;
@@ -57,6 +58,7 @@ class PadelScoreProvider extends ChangeNotifier {
       'teamAName': _teamAName, 'teamBName': _teamBName,
       'player1Name': _player1Name, 'player2Name': _player2Name,
       'player3Name': _player3Name, 'player4Name': _player4Name,
+      'playerIds': _playerIds,
       'firstServerPlayerId': _firstServerPlayerId,
       'isGoldenPoint': _isGoldenPoint,
       'advantagesBeforeGoldenPoint': _advantagesBeforeGoldenPoint,
@@ -85,6 +87,7 @@ class PadelScoreProvider extends ChangeNotifier {
       durationSeconds: _elapsedSeconds,
       teamAName: _teamAName, teamBName: _teamBName,
       players: [_player1Name, _player2Name, _player3Name, _player4Name],
+      playerIds: _playerIds,
       bestOfSets: _bestOfSets, gamesPerSet: _shortSets ? 4 : 6,
       completedAt: DateTime.now().millisecondsSinceEpoch,
     );
@@ -190,6 +193,7 @@ class PadelScoreProvider extends ChangeNotifier {
       _player2Name = config['player2Name'] as String;
       _player3Name = config['player3Name'] as String;
       _player4Name = config['player4Name'] as String;
+      _playerIds = _validPlayerIds(config['playerIds']);
       _firstServerPlayerId = config['firstServerPlayerId'] as int;
       _isGoldenPoint = config['isGoldenPoint'] as bool;
       _advantagesBeforeGoldenPoint = config['advantagesBeforeGoldenPoint'] as int;
@@ -240,6 +244,13 @@ class PadelScoreProvider extends ChangeNotifier {
   String get player2Name => _player2Name;
   String get player3Name => _player3Name;
   String get player4Name => _player4Name;
+  List<String?> get playerIds => List.unmodifiable(_playerIds);
+  static List<String?> _validPlayerIds(dynamic value) {
+    if (value is! List || value.length != 4 || !value.every((v) => v == null || (v is String && v.isNotEmpty && v.length <= 100))) {
+      return [null, null, null, null];
+    }
+    return value.cast<String?>().toList();
+  }
   int get firstServerPlayerId => _firstServerPlayerId;
   bool get isGoldenPoint => _isGoldenPoint;
   int get advantagesBeforeGoldenPoint => _advantagesBeforeGoldenPoint;
@@ -295,6 +306,7 @@ class PadelScoreProvider extends ChangeNotifier {
     bool shortSets = false,
     bool decidingMatchTieBreak = false,
     int decidingTieBreakPoints = 10,
+    List<String?>? playerIds,
   }) {
     _configurationVersion++;
     _pendingRecovery = null;
@@ -310,6 +322,7 @@ class PadelScoreProvider extends ChangeNotifier {
     _player2Name = player2.trim().isEmpty ? 'Giocatore 2' : player2.trim();
     _player3Name = player3.trim().isEmpty ? 'Giocatore 3' : player3.trim();
     _player4Name = player4.trim().isEmpty ? 'Giocatore 4' : player4.trim();
+    _playerIds = _validPlayerIds(playerIds);
     _firstServerPlayerId = (firstServerPlayerId >= 1 && firstServerPlayerId <= 4)
         ? firstServerPlayerId
         : 1;
@@ -355,6 +368,7 @@ class PadelScoreProvider extends ChangeNotifier {
       _player2Name = prefs.getString('player2Name') ?? 'Luigi Verdi';
       _player3Name = prefs.getString('player3Name') ?? 'Paolo Bianchi';
       _player4Name = prefs.getString('player4Name') ?? 'Marco Neri';
+      _playerIds = _validPlayerIds(prefs.getStringList('matchPlayerIds')?.map((s) => s.isEmpty ? null : s).toList());
       _firstServerPlayerId = prefs.getInt('firstServerPlayerId') ?? 1;
 
       final initialTeam = getTeamForPlayerId(_firstServerPlayerId);
@@ -382,6 +396,7 @@ class PadelScoreProvider extends ChangeNotifier {
       await prefs.setString('player2Name', _player2Name);
       await prefs.setString('player3Name', _player3Name);
       await prefs.setString('player4Name', _player4Name);
+      await prefs.setStringList('matchPlayerIds', _playerIds.map((s) => s ?? '').toList());
       await prefs.setInt('firstServerPlayerId', _firstServerPlayerId);
     } catch (_) {}
   }

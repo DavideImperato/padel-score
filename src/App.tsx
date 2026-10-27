@@ -14,6 +14,7 @@ import { padelAudio } from './utils/padelAudio';
 import { archiveCompletedMatch } from './engine/matchHistory';
 import { archiveInterruptedMatch, findInterruptedMatch, removeInterruptedMatch } from './engine/matchInterrupted';
 import { MatchHistoryScreen } from './components/MatchHistoryScreen';
+import { PlayerDirectoryScreen } from './components/PlayerDirectoryScreen';
 import { BluetoothKeyListener } from './utils/bluetoothListener';
 import { TeamColumn } from './components/TeamColumn';
 import { HeaderBar } from './components/HeaderBar';
@@ -52,7 +53,7 @@ const DEFAULT_SETTINGS: MatchSettings = {
 
 export default function App() {
   // Schermata: 'setup' (default per "/"), 'scoreboard', o 'summary' (riepilogo finale)
-  const [currentView, setCurrentView] = useState<'setup' | 'scoreboard' | 'summary' | 'history'>('setup');
+  const [currentView, setCurrentView] = useState<'setup' | 'scoreboard' | 'summary' | 'history' | 'players'>('setup');
   const [summaryArchiveError, setSummaryArchiveError] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<MatchSettings>(() => {
@@ -701,6 +702,7 @@ export default function App() {
           isMatchInProgress={isMatchInProgress}
           onOpenRemoteHelper={() => setIsRemoteHelperOpen(true)}
           onOpenHistory={() => setCurrentView('history')}
+          onOpenPlayers={() => setCurrentView('players')}
         />
 
         <RemoteHelperModal
@@ -713,6 +715,10 @@ export default function App() {
         />
       </>
     );
+  }
+
+  if (currentView === 'players') {
+    return <PlayerDirectoryScreen onBack={() => setCurrentView('setup')} />;
   }
 
   if (currentView === 'history') {

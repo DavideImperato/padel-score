@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
 import 'landscape_scoreboard_screen.dart';
 import 'match_history_screen.dart';
+import 'player_directory_screen.dart';
+import '../services/player_directory.dart';
 
 class MatchSetupScreen extends StatefulWidget {
   const MatchSetupScreen({super.key});
@@ -22,6 +24,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   late TextEditingController _player3Controller;
   late TextEditingController _player4Controller;
 
+  Map<String, dynamic>? _directory;
+  List<String?> _selectedPlayerIds = [null, null, null, null];
   int _selectedFirstServerId = 1; // 1, 2, 3 o 4
   // 0 = vantaggi tradizionali, 1 = punto d'oro, 2 = Star Point.
   int _scoringMode = 1;
@@ -40,6 +44,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     _player2Controller = TextEditingController(text: provider.player2Name);
     _player3Controller = TextEditingController(text: provider.player3Name);
     _player4Controller = TextEditingController(text: provider.player4Name);
+    _selectedPlayerIds = provider.playerIds.toList();
+    _loadDirectory();
     _selectedFirstServerId = provider.firstServerPlayerId;
     _scoringMode = !provider.isGoldenPoint
         ? 0
@@ -48,6 +54,64 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     _shortSets = provider.shortSets;
     _decidingMatchTieBreak = provider.decidingMatchTieBreak;
     _decidingTieBreakPoints = provider.decidingTieBreakPoints;
+  }
+
+  Future<void> _loadDirectory() async {
+    final directory = await PlayerDirectoryStore.load();
+    if (mounted) setState(() => _directory = directory);
+  }
+
+  void _choosePlayer(int index, String? id) {
+    final players = (_directory?['players'] as List? ?? []);
+    final matches = players.where((p) => p['id'] == id);
+    setState(() {
+      _selectedPlayerIds[index] = matches.isEmpty ? null : id;
+      if (matches.isNotEmpty) _controllers[index].text = matches.first['name'] as String;
+    });
+  }
+  List<TextEditingController> get _controllers => [_player1Controller, _player2Controller, _player3Controller, _player4Controller];
+  void _choosePair(int team, String? id) {
+    final pairs = (_directory?['pairs'] as List? ?? []);
+    final players = (_directory?['players'] as List? ?? []);
+    final matches = pairs.where((p) => p['id'] == id);
+    if (matches.isEmpty) return;
+    final ids = (matches.first['playerIds'] as List).cast<String>();
+    final first = players.where((p) => p['id'] == ids[0]);
+    final second = players.where((p) => p['id'] == ids[1]);
+    if (first.isEmpty || second.isEmpty) return;
+    setState(() {
+      _selectedPlayerIds[team * 2] = ids[0]; _selectedPlayerIds[team * 2 + 1] = ids[1];
+      _controllers[team * 2].text = first.first['name'] as String;
+      _controllers[team * 2 + 1].text = second.first['name'] as String;
+      (team == 0 ? _team1Controller : _team2Controller).text = matches.first['name'] as String;
+    });
+  }
+
+  Widget _chooseSavedPlayer(int index) {
+    final players = (_directory?['players'] as List? ?? []);
+    if (players.isEmpty) return const SizedBox.shrink();
+    final selected = players.any((p) => p['id'] == _selectedPlayerIds[index]) ? _selectedPlayerIds[index] : null;
+    return DropdownButton<String>(
+      value: selected, isExpanded: true,
+      hint: Text('Giocatore ${index + 1}: seleziona dalla rubrica'),
+      items: players.map<DropdownMenuItem<String>>((p) => DropdownMenuItem(
+        value: p['id'] as String, child: Text(p['name'] as String))).toList(),
+      onChanged: (id) => _choosePlayer(index, id),
+    );
+  }
+
+  Widget _chooseSavedPair(int team) {
+    final pairs = (_directory?['pairs'] as List? ?? []);
+    if (pairs.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DropdownButton<String>(
+        isExpanded: true, hint: const Text('Seleziona una coppia salvata'),
+        items: pairs.map<DropdownMenuItem<String>>((p) => DropdownMenuItem(
+          value: p['id'] as String, child: Text(p['name'] as String))).toList(),
+        onChanged: (id) => _choosePair(team, id),
+      ),
+    );
   }
 
   @override
@@ -64,6 +128,16 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   void _startMatch() {
     if (!_formKey.currentState!.validate()) return;
 
+    final registered = (_directory?['players'] as List? ?? []);
+    final validIds = List<String?>.generate(4, (i) {
+      final candidates = registered.where((p) => p['id'] == _selectedPlayerIds[i] && p['name'] == _controllers[i].text);
+      return candidates.isNotEmpty ? _selectedPlayerIds[i] : null;
+    });
+    final ids = validIds.whereType<String>().toList();
+    if (ids.length != ids.toSet().length) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lo stesso giocatore non può occupare due posizioni.')));
+      return;
+    }
     HapticFeedback.heavyImpact();
 
     final provider = context.read<PadelScoreProvider>();
@@ -81,6 +155,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       shortSets: _shortSets,
       decidingMatchTieBreak: _bestOfSets > 1 && _decidingMatchTieBreak,
       decidingTieBreakPoints: _decidingTieBreakPoints,
+      playerIds: validIds,
     );
 
     // Naviga al tabellone orizzontale
@@ -175,6 +250,15 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerDirectoryScreen()));
+                        await _loadDirectory();
+                      },
+                      icon: const Icon(Icons.people, color: Color(0xFF00E5FF)),
+                      label: const Text('GIOCATORI E COPPIE', style: TextStyle(color: Colors.white)),
+                    ),
+                    const SizedBox(height: 8),
                     OutlinedButton.icon(
                       onPressed: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const MatchHistoryScreen()),
@@ -330,10 +414,11 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
           ),
           const SizedBox(height: 12),
 
+          _chooseSavedPair(teamNumber - 1),
           // Giocatore A
           TextFormField(
             controller: playerAController,
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => setState(() { _selectedPlayerIds[playerAId - 1] = null; }),
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               labelText: playerALabel,
@@ -346,12 +431,13 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             ),
             validator: (v) => v == null || v.trim().isEmpty ? 'Inserisci nome giocatore' : null,
           ),
+          _chooseSavedPlayer(playerAId - 1),
           const SizedBox(height: 10),
 
           // Giocatore B
           TextFormField(
             controller: playerBController,
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => setState(() { _selectedPlayerIds[playerBId - 1] = null; }),
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               labelText: playerBLabel,
@@ -364,6 +450,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             ),
             validator: (v) => v == null || v.trim().isEmpty ? 'Inserisci nome compagno' : null,
           ),
+          _chooseSavedPlayer(playerBId - 1),
         ],
       ),
     );

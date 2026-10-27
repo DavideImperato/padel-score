@@ -13,6 +13,7 @@ export interface ArchivedMatch {
   teamAName: string;
   teamBName: string;
   players: [string, string, string, string];
+  playerIds?: [string | null, string | null, string | null, string | null];
   winner: Team;
   sets: SetScore[];
   bestOfSets: number;
@@ -21,6 +22,7 @@ export interface ArchivedMatch {
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+const strId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
 const isTeam = (value: unknown): value is Team => value === 'teamA' || value === 'teamB';
 const validNumber = (value: unknown, max: number): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= max;
@@ -31,7 +33,8 @@ export function isArchivedMatch(value: unknown): value is ArchivedMatch {
       !validNumber(value.durationSeconds, 10_000_000) ||
       typeof value.teamAName !== 'string' || typeof value.teamBName !== 'string' ||
       !Array.isArray(value.players) || value.players.length !== 4 ||
-      !value.players.every(v => typeof v === 'string') || !isTeam(value.winner) ||
+      !value.players.every(v => typeof v === 'string') ||
+      (value.playerIds !== undefined && (!Array.isArray(value.playerIds) || value.playerIds.length !== 4 || !value.playerIds.every(v => v === null || strId(v)))) || !isTeam(value.winner) ||
       ![1, 3, 5].includes(value.bestOfSets as number) ||
       ![4, 6].includes(value.gamesPerSet as number) ||
       !Array.isArray(value.sets) || value.sets.length < 1 || value.sets.length > 5) return false;
@@ -67,6 +70,7 @@ export function archiveCompletedMatch(
     version: 1, id, completedAt, durationSeconds,
     teamAName: settings.teamAName, teamBName: settings.teamBName,
     players: [settings.player1Name, settings.player2Name, settings.player3Name, settings.player4Name],
+    ...(settings.playerIds ? { playerIds: settings.playerIds } : {}),
     winner: snapshot.matchWinner,
     sets: snapshot.completedSets.map(s => ({ ...s })),
     bestOfSets: settings.bestOfSets,

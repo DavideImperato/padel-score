@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MatchSettings } from '../types/padel';
 import { Play, Trophy, Sparkles, RefreshCw, Radio, ArrowRight } from 'lucide-react';
+import { readPlayerDirectory } from '../engine/playerDirectory';
 
 interface MatchSetupScreenProps {
   currentSettings: MatchSettings;
@@ -9,6 +10,7 @@ interface MatchSetupScreenProps {
   isMatchInProgress: boolean;
   onOpenRemoteHelper: () => void;
   onOpenHistory: () => void;
+  onOpenPlayers: () => void;
 }
 
 export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
@@ -18,6 +20,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
   isMatchInProgress,
   onOpenRemoteHelper,
   onOpenHistory,
+  onOpenPlayers,
 }) => {
   const [team1, setTeam1] = useState(currentSettings.teamAName);
   const [team2, setTeam2] = useState(currentSettings.teamBName);
@@ -26,6 +29,38 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
   const [p2, setP2] = useState(currentSettings.player2Name);
   const [p3, setP3] = useState(currentSettings.player3Name);
   const [p4, setP4] = useState(currentSettings.player4Name);
+  const directory = readPlayerDirectory(window.localStorage);
+  const [selectedIds, setSelectedIds] = useState<(string | null)[]>([...(currentSettings.playerIds ?? [null, null, null, null])]);
+  const setPlayerNames = [setP1, setP2, setP3, setP4];
+  const choosePlayer = (index: number, id: string) => {
+    const player = directory?.players.find(p => p.id === id);
+    setSelectedIds(prev => prev.map((value, i) => i === index ? (player?.id ?? null) : value));
+    if (player) setPlayerNames[index](player.name);
+  };
+  const choosePair = (team: 0 | 1, id: string) => {
+    const pair = directory?.pairs.find(p => p.id === id);
+    if (!pair) return;
+    const start = team * 2;
+    const playerA = directory?.players.find(p => p.id === pair.playerIds[0]);
+    const playerB = directory?.players.find(p => p.id === pair.playerIds[1]);
+    if (!playerA || !playerB) return;
+    setPlayerNames[start](playerA.name);
+    setPlayerNames[start + 1](playerB.name);
+    setSelectedIds(prev => prev.map((value, i) => i === start ? playerA.id : (i === start + 1 ? playerB.id : value)));
+    (team === 0 ? setTeam1 : setTeam2)(pair.name);
+  };
+  const changeManualPlayer = (index: number, name: string) => {
+    setPlayerNames[index](name);
+    setSelectedIds(prev => prev.map((value, i) => i === index ? null : value));
+  };
+  const playerSelector = (index: number) => directory?.players.length ? (
+    <select aria-label={`Seleziona giocatore ${index + 1} dalla rubrica`} value={selectedIds[index] ?? ''}
+      onChange={e => choosePlayer(index, e.target.value)}
+      className="w-full mt-1 rounded-lg bg-slate-800 border border-slate-700 text-xs px-2 py-2 text-slate-200">
+      <option value="">Nome manuale</option>
+      {directory.players.map(player => <option key={player.id} value={player.id}>{player.name}</option>)}
+    </select>
+  ) : null;
 
   const [firstServerId, setFirstServerId] = useState(currentSettings.firstServerPlayerId || 1);
   const [isGoldenPoint, setIsGoldenPoint] = useState(currentSettings.isGoldenPoint);
@@ -44,7 +79,15 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const actualNames = [p1, p2, p3, p4];
+    const validIds = selectedIds.map((id, i) => {
+      const player = directory?.players.find(p => p.id === id);
+      return player && player.name === actualNames[i] ? player.id : null;
+    });
+    const ids = validIds.filter(Boolean);
+    if (new Set(ids).size !== ids.length) { window.alert('Un giocatore non può occupare due posizioni nella stessa partita.'); return; }
     onStartMatch({
+      playerIds: validIds as [string | null, string | null, string | null, string | null],
       teamAName: team1.trim() || 'Gli Smashtori',
       teamBName: team2.trim() || 'I Timemasters',
       player1Name: player1Display,
@@ -105,6 +148,10 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
             </button>
           )}
 
+          <button type="button" onClick={onOpenPlayers}
+            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-slate-800">
+            Giocatori e coppie
+          </button>
           <button type="button" onClick={onOpenHistory}
             className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs font-bold text-[#CCFF00] hover:bg-slate-800">
             Storico partite
@@ -148,6 +195,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                   />
                 </div>
 
+                {directory?.pairs.length ? <select aria-label="Usa coppia salvata squadra 1" defaultValue="" onChange={e => choosePair(0, e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg text-xs p-2"><option value="">Scegli una coppia salvata</option>{directory.pairs.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select> : null}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 mb-1">
@@ -156,11 +204,12 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                     <input
                       type="text"
                       value={p1}
-                      onChange={(e) => setP1(e.target.value)}
+                      onChange={(e) => changeManualPlayer(0, e.target.value)}
                       placeholder="Mario Rossi"
                       required
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-bold text-xs focus:outline-none focus:border-[#CCFF00]"
                     />
+                    {playerSelector(0)}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 mb-1">
@@ -169,11 +218,12 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                     <input
                       type="text"
                       value={p2}
-                      onChange={(e) => setP2(e.target.value)}
+                      onChange={(e) => changeManualPlayer(1, e.target.value)}
                       placeholder="Luigi Verdi"
                       required
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-bold text-xs focus:outline-none focus:border-[#CCFF00]"
                     />
+                    {playerSelector(1)}
                   </div>
                 </div>
               </div>
@@ -201,6 +251,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                   />
                 </div>
 
+                {directory?.pairs.length ? <select aria-label="Usa coppia salvata squadra 2" defaultValue="" onChange={e => choosePair(1, e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg text-xs p-2"><option value="">Scegli una coppia salvata</option>{directory.pairs.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select> : null}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 mb-1">
@@ -209,11 +260,12 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                     <input
                       type="text"
                       value={p3}
-                      onChange={(e) => setP3(e.target.value)}
+                      onChange={(e) => changeManualPlayer(2, e.target.value)}
                       placeholder="Paolo Bianchi"
                       required
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-bold text-xs focus:outline-none focus:border-cyan-400"
                     />
+                    {playerSelector(2)}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 mb-1">
@@ -222,11 +274,12 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
                     <input
                       type="text"
                       value={p4}
-                      onChange={(e) => setP4(e.target.value)}
+                      onChange={(e) => changeManualPlayer(3, e.target.value)}
                       placeholder="Marco Neri"
                       required
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-bold text-xs focus:outline-none focus:border-cyan-400"
                     />
+                    {playerSelector(3)}
                   </div>
                 </div>
               </div>

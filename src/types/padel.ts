@@ -30,6 +30,8 @@ export interface PadelMatchSnapshot {
 }
 
 export interface MatchSettings {
+  /** Identità anagrafica opzionale: i nomi manuali restano supportati. */
+  playerIds?: [string | null, string | null, string | null, string | null];
   teamAName: string;
   teamBName: string;
   player1Name: string;

@@ -12,6 +12,7 @@ class MatchHistoryStore {
     final r = Map<String, dynamic>.from(value);
     final players = r['players'];
     final sets = r['sets'];
+    final ids = r['playerIds'];
     if (r['version'] != 1 || r['id'] is! String ||
         (r['id'] as String).isEmpty || (r['id'] as String).length > 128 ||
         r['completedAt'] is! int || (r['completedAt'] as int) < 0 ||
@@ -19,6 +20,7 @@ class MatchHistoryStore {
         r['teamAName'] is! String || r['teamBName'] is! String ||
         r['winner'] != 'teamA' && r['winner'] != 'teamB' ||
         players is! List || players.length != 4 || !players.every((p) => p is String) ||
+        (ids != null && (ids is! List || ids.length != 4 || !ids.every((id) => id == null || (id is String && id.isNotEmpty && id.length <= 100)))) ||
         sets is! List || sets.isEmpty || sets.length > 5 ||
         ![1, 3, 5].contains(r['bestOfSets']) || ![4, 6].contains(r['gamesPerSet'])) {
       return false;
@@ -62,13 +64,13 @@ class MatchHistoryStore {
     required String id, required PadelMatchSnapshot snapshot,
     required int durationSeconds,
     required String teamAName, required String teamBName,
-    required List<String> players, required int bestOfSets,
+    required List<String> players, List<String?>? playerIds, required int bestOfSets,
     required int gamesPerSet, required int completedAt,
   }) => {
     'version': 1, 'id': id, 'completedAt': completedAt,
     'durationSeconds': durationSeconds,
     'teamAName': teamAName, 'teamBName': teamBName,
-    'players': players, 'winner': snapshot.matchWinner?.name,
+    'players': players, if (playerIds != null) 'playerIds': playerIds, 'winner': snapshot.matchWinner?.name,
     'sets': snapshot.completedSets.map((set) => {
       'gamesA': set.gamesA, 'gamesB': set.gamesB,
       'isCompleted': set.isCompleted,

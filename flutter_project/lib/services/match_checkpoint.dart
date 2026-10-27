@@ -26,6 +26,8 @@ class MatchCheckpointCodec {
            (value['matchId'] as String).length > 128)) return null;
       final settings = Map<String, dynamic>.from(value['settings'] as Map);
       final runtime = Map<String, dynamic>.from(value['runtime'] as Map);
+      final ids = settings['playerIds'];
+      if (ids != null && (ids is! List || ids.length != 4 || !ids.every((id) => id == null || (id is String && id.isNotEmpty && id.length <= 100)))) return null;
       if (!['teamAName', 'teamBName', 'player1Name', 'player2Name',
         'player3Name', 'player4Name'].every((k) => settings[k] is String) ||
         settings['firstServerPlayerId'] is! int ||
