@@ -11,6 +11,7 @@ export interface MatchRuntime {
   breakSecondsLeft: number;
   isBreakActive: boolean;
   view: 'scoreboard' | 'summary';
+  matchId?: string;
 }
 export interface MatchCheckpoint {
   version: 1;
@@ -55,7 +56,8 @@ const validSettings = (s: unknown): s is MatchSettings =>
 const validRuntime = (r: unknown): r is MatchRuntime =>
   record(r) && integer(r.matchSeconds, 0, 10_000_000) && typeof r.isTimerRunning === 'boolean' &&
   typeof r.isSidesSwapped === 'boolean' && integer(r.breakSecondsLeft, 0, 10000) &&
-  typeof r.isBreakActive === 'boolean' && (r.view === 'scoreboard' || r.view === 'summary');
+  typeof r.isBreakActive === 'boolean' && (r.view === 'scoreboard' || r.view === 'summary') &&
+  (r.matchId === undefined || (typeof r.matchId === 'string' && r.matchId.length > 0 && r.matchId.length <= 128));
 export function decodeCheckpoint(raw: string | null): MatchCheckpoint | null {
   if (!raw) return null;
   try {

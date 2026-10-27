@@ -18,6 +18,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
   late BluetoothKeyService _keyService;
 
   // Cronometro durata del match
+  bool _isArchiving = false;
   Timer? _matchTimer;
   int _elapsedSeconds = 0;
   bool _isTimerRunning = true;
@@ -262,6 +263,38 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                   _buildSetsHistoryBar(provider, snapshot),
                 ],
               ),
+
+              if (provider.isMatchOver)
+                Positioned(
+                  bottom: 56,
+                  right: 24,
+                  child: ElevatedButton.icon(
+                    onPressed: _isArchiving ? null : () async {
+                      setState(() => _isArchiving = true);
+                      // Sincronizza il timer locale nel provider prima dell'archiviazione.
+                      provider.updateClock(_elapsedSeconds, false,
+                        breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+                      final ok = await provider.archiveFinishedMatch();
+                      if (!mounted) return;
+                      if (ok) {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+                        );
+                      } else {
+                        setState(() => _isArchiving = false);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Salvataggio non riuscito. Riprova prima di uscire.'),
+                        ));
+                      }
+                    },
+                    icon: const Icon(Icons.save),
+                    label: Text(_isArchiving ? 'SALVATAGGIO…' : 'SALVA NELLO STORICO E CHIUDI'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFCCFF00),
+                      foregroundColor: Colors.black,
+                    ),
+                  ),
+                ),
 
               // OVERLAY CONTROLLI RAPIDI
               _buildTopFloatingControls(context, provider),

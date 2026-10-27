@@ -11,6 +11,8 @@ import {
 import { PadelMatchStore } from './engine/padelMatchStore';
 import { loadCheckpoint, saveCheckpoint, clearCheckpoint, MatchCheckpoint, MatchRuntime } from './engine/matchPersistence';
 import { padelAudio } from './utils/padelAudio';
+import { archiveCompletedMatch } from './engine/matchHistory';
+import { MatchHistoryScreen } from './components/MatchHistoryScreen';
 import { BluetoothKeyListener } from './utils/bluetoothListener';
 import { TeamColumn } from './components/TeamColumn';
 import { HeaderBar } from './components/HeaderBar';
@@ -49,7 +51,7 @@ const DEFAULT_SETTINGS: MatchSettings = {
 
 export default function App() {
   // Schermata: 'setup' (default per "/"), 'scoreboard', o 'summary' (riepilogo finale)
-  const [currentView, setCurrentView] = useState<'setup' | 'scoreboard' | 'summary'>('setup');
+  const [currentView, setCurrentView] = useState<'setup' | 'scoreboard' | 'summary' | 'history'>('setup');
 
   const [settings, setSettings] = useState<MatchSettings>(() => {
     try {
@@ -91,6 +93,7 @@ export default function App() {
     return loadCheckpoint(window.localStorage);
   });
   const persistenceActiveRef = useRef(false);
+  const archiveMatchIdRef = useRef(`web-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   // Modal di reset personalizzata (elimina window.confirm bloccato in iframe)
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -124,10 +127,12 @@ export default function App() {
   const runtimeRef = useRef<MatchRuntime>({
     matchSeconds, isTimerRunning, isSidesSwapped, breakSecondsLeft, isBreakActive,
     view: currentView === 'summary' ? 'summary' : 'scoreboard',
+    matchId: archiveMatchIdRef.current,
   });
   runtimeRef.current = {
     matchSeconds, isTimerRunning, isSidesSwapped, breakSecondsLeft, isBreakActive,
     view: currentView === 'summary' ? 'summary' : 'scoreboard',
+    matchId: archiveMatchIdRef.current,
   };
 
   const persistCurrentMatch = useCallback((runtime?: MatchRuntime) => {
@@ -146,6 +151,7 @@ export default function App() {
     const saved = recoveryCandidate;
     store.restoreMatch(saved.settings, saved.state);
     setSettings(saved.settings);
+    archiveMatchIdRef.current = saved.runtime.matchId || archiveMatchIdRef.current;
     setMatchSeconds(saved.runtime.matchSeconds);
     setIsTimerRunning(saved.runtime.isTimerRunning && !saved.state.snapshot.matchWinner);
     setIsSidesSwapped(saved.runtime.isSidesSwapped);
@@ -580,10 +586,11 @@ export default function App() {
     setMatchSeconds(0);
     setIsTimerRunning(true); // Cronometro attivo automaticamente da 0
 
+    archiveMatchIdRef.current = `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const initialPlayer = store.startNewMatch(newSettings);
     persistenceActiveRef.current = true;
     persistCurrentMatch({ matchSeconds: 0, isTimerRunning: true, isSidesSwapped: false,
-      breakSecondsLeft: 0, isBreakActive: false, view: 'scoreboard' });
+      breakSecondsLeft: 0, isBreakActive: false, view: 'scoreboard', matchId: archiveMatchIdRef.current });
     const initialTeam: Team = getTeamForPlayerId(initialPlayer);
 
     // Switch screen to scoreboard!
@@ -678,6 +685,7 @@ export default function App() {
           onGoToScoreboard={() => setCurrentView('scoreboard')}
           isMatchInProgress={isMatchInProgress}
           onOpenRemoteHelper={() => setIsRemoteHelperOpen(true)}
+          onOpenHistory={() => setCurrentView('history')}
         />
 
         <RemoteHelperModal
@@ -692,6 +700,10 @@ export default function App() {
     );
   }
 
+  if (currentView === 'history') {
+    return <MatchHistoryScreen onBack={() => setCurrentView('setup')} />;
+  }
+
   // RENDER 2: SCHERMATA DI RIEPILOGO FINALE (MATCH RESULT)
   if (currentView === 'summary') {
     return (
@@ -700,6 +712,14 @@ export default function App() {
         settings={settings}
         matchDurationFormatted={formatMatchTime(matchSeconds)}
         onGoToSetup={() => {
+          if (snapshot.matchWinner && typeof window !== 'undefined') {
+            const status = archiveCompletedMatch(window.localStorage, archiveMatchIdRef.current,
+              store.getSettings(), snapshot, matchSeconds);
+            if (status !== 'saved' && status !== 'exists') {
+              window.alert('Non è stato possibile salvare la partita nello storico. Il riepilogo rimane disponibile.');
+              return;
+            }
+          }
           if (summaryRedirectTimerRef.current) {
             clearTimeout(summaryRedirectTimerRef.current);
             summaryRedirectTimerRef.current = null;

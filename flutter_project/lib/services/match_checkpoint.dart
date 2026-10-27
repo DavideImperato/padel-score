@@ -21,6 +21,9 @@ class MatchCheckpointCodec {
           value['history'] is! List || value['runtime'] is! Map) {
         return null;
       }
+      if (value['matchId'] != null &&
+          (value['matchId'] is! String || (value['matchId'] as String).isEmpty ||
+           (value['matchId'] as String).length > 128)) return null;
       final settings = Map<String, dynamic>.from(value['settings'] as Map);
       final runtime = Map<String, dynamic>.from(value['runtime'] as Map);
       if (!['teamAName', 'teamBName', 'player1Name', 'player2Name',

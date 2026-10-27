@@ -300,7 +300,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
             className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-[#CCFF00] hover:bg-[#b8e600] text-slate-950 font-black text-base sm:text-lg tracking-wider uppercase shadow-xl shadow-[#CCFF00]/30 transition-all flex items-center justify-center gap-3 cursor-pointer active:scale-95"
           >
             <ArrowLeft className="w-5 h-5" />
-            <span>Torna alla Pagina Iniziale</span>
+            <span>{snapshot.matchWinner ? 'Salva nello storico e torna al setup' : 'Torna al setup senza archiviare'}</span>
           </button>
         </div>
       </main>

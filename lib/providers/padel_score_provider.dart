@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/padel_match_state.dart';
 import '../services/tts_service.dart';
 import '../services/match_checkpoint.dart';
+import '../services/match_history.dart';
 
 class PadelScoreProvider extends ChangeNotifier {
   final TtsService _ttsService;
@@ -34,6 +35,8 @@ class PadelScoreProvider extends ChangeNotifier {
 
   // Checkpoint offline: serializza in coda le scritture, senza invertire i punti rapidi.
   bool _activeCheckpoint = false;
+  bool _finalizingMatch = false;
+  String _matchArchiveId = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
   Map<String, dynamic>? _pendingRecovery;
   Future<void> _writeQueue = Future<void>.value();
   int _elapsedSeconds = 0;
@@ -48,6 +51,7 @@ class PadelScoreProvider extends ChangeNotifier {
   bool get isBreakActive => _isBreakActive;
 
   Map<String, dynamic> _currentCheckpoint() => {
+    'matchId': _matchArchiveId,
     'settings': {
       'teamAName': _teamAName, 'teamBName': _teamBName,
       'player1Name': _player1Name, 'player2Name': _player2Name,
@@ -69,6 +73,34 @@ class PadelScoreProvider extends ChangeNotifier {
   };
 
   Future<void> flushCheckpoint() => _writeQueue;
+
+  /// Conserva il risultato una sola volta, dopo conferma dell'utente.
+  /// L'operazione rispetta la coda del checkpoint, poi lo elimina.
+  Future<bool> archiveFinishedMatch() async {
+    if (_currentSnapshot.matchWinner == null || _finalizingMatch) return false;
+    _finalizingMatch = true;
+    final record = MatchHistoryStore.buildRecord(
+      id: _matchArchiveId, snapshot: _currentSnapshot,
+      durationSeconds: _elapsedSeconds,
+      teamAName: _teamAName, teamBName: _teamBName,
+      players: [_player1Name, _player2Name, _player3Name, _player4Name],
+      bestOfSets: _bestOfSets, gamesPerSet: _shortSets ? 4 : 6,
+      completedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    _activeCheckpoint = false;
+    var saved = false;
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        saved = await MatchHistoryStore.saveRecord(prefs, record);
+        if (saved) await prefs.remove(MatchCheckpointCodec.key);
+      } catch (_) { saved = false; }
+    });
+    await _writeQueue;
+    if (!saved) _activeCheckpoint = true;
+    _finalizingMatch = false;
+    return saved;
+  }
 
   void _scheduleCheckpoint() {
     if (!_activeCheckpoint) return;
@@ -106,6 +138,8 @@ class PadelScoreProvider extends ChangeNotifier {
       final snap = MatchCheckpointCodec.snapshotFromJson(Map<String, dynamic>.from(checkpoint['snapshot'] as Map));
       final history = (checkpoint['history'] as List).map((e) => MatchCheckpointCodec.snapshotFromJson(Map<String, dynamic>.from(e as Map))).toList();
       _configurationVersion++;
+      _matchArchiveId = checkpoint['matchId'] is String && (checkpoint['matchId'] as String).isNotEmpty
+          ? checkpoint['matchId'] as String : 'flutter-${DateTime.now().microsecondsSinceEpoch}';
       _teamAName = config['teamAName'] as String;
       _teamBName = config['teamBName'] as String;
       _player1Name = config['player1Name'] as String;
@@ -220,6 +254,7 @@ class PadelScoreProvider extends ChangeNotifier {
   }) {
     _configurationVersion++;
     _pendingRecovery = null;
+    _matchArchiveId = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
     _activeCheckpoint = true;
     _elapsedSeconds = 0;
     _isTimerRunning = true;
@@ -656,6 +691,7 @@ class PadelScoreProvider extends ChangeNotifier {
   }
 
   void undo() {
+    if (_finalizingMatch) return;
     if (_history.isEmpty) return;
     _currentSnapshot = _history.removeLast();
     notifyListeners();

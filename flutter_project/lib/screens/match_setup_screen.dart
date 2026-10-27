@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
 import 'landscape_scoreboard_screen.dart';
+import 'match_history_screen.dart';
 
 class MatchSetupScreen extends StatefulWidget {
   const MatchSetupScreen({super.key});
@@ -174,6 +175,14 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const MatchHistoryScreen()),
+                      ),
+                      icon: const Icon(Icons.history, color: Color(0xFFCCFF00)),
+                      label: const Text('STORICO PARTITE', style: TextStyle(color: Colors.white)),
+                    ),
+                    const SizedBox(height: 18),
                     // Sezione 1: Coppie e Giocatori (2 Card affiancate o stacked)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,

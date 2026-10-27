@@ -8,6 +8,7 @@ interface MatchSetupScreenProps {
   onGoToScoreboard?: () => void;
   isMatchInProgress: boolean;
   onOpenRemoteHelper: () => void;
+  onOpenHistory: () => void;
 }
 
 export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
@@ -16,6 +17,7 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
   onGoToScoreboard,
   isMatchInProgress,
   onOpenRemoteHelper,
+  onOpenHistory,
 }) => {
   const [team1, setTeam1] = useState(currentSettings.teamAName);
   const [team2, setTeam2] = useState(currentSettings.teamBName);
@@ -103,6 +105,10 @@ export const MatchSetupScreen: React.FC<MatchSetupScreenProps> = ({
             </button>
           )}
 
+          <button type="button" onClick={onOpenHistory}
+            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs font-bold text-[#CCFF00] hover:bg-slate-800">
+            Storico partite
+          </button>
           <button
             onClick={onOpenRemoteHelper}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-emerald-500/60 text-xs text-slate-300 font-bold transition-colors cursor-pointer"
