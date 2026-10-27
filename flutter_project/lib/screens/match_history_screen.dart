@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/match_history.dart';
 import '../services/match_interrupted.dart';
+import '../services/match_history_advanced.dart';
+import '../services/player_directory.dart';
 import '../providers/padel_score_provider.dart';
 import 'landscape_scoreboard_screen.dart';
 
@@ -16,11 +19,112 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
   late Future<List<Map<String, dynamic>>> _history;
   late Future<List<Map<String, dynamic>>> _interrupted;
   bool _showInterrupted = false;
+  bool _showFilters = false;
+  String _query = '';
+  String _playerId = '';
+  String _pairId = '';
+  DateTime? _from;
+  DateTime? _to;
+  Map<String, dynamic> _directory = {'players': <dynamic>[], 'pairs': <dynamic>[]};
+  final TextEditingController _searchController = TextEditingController();
+
+  List<Map<String, dynamic>> _filtered(List<Map<String, dynamic>> items) {
+    final pairs = (_directory['pairs'] as List).cast<Map<String, dynamic>>();
+    final selectedPair = pairs.where((p) => p['id'] == _pairId);
+    final pairIds = selectedPair.isEmpty ? <String>[] : List<String>.from(selectedPair.first['playerIds'] as List);
+    final players = (_directory['players'] as List).cast<Map<String, dynamic>>();
+    final names = <String, String>{};
+    for (final player in players) {
+      names[player['id'] as String] = player['name'] as String;
+    }
+    return _showInterrupted
+      ? MatchHistoryAdvanced.interrupted(items, query: _query, playerId: _playerId,
+          pairIds: pairIds, from: _from, to: _to, currentNames: names)
+      : MatchHistoryAdvanced.finished(items, query: _query, playerId: _playerId,
+          pairIds: pairIds, from: _from, to: _to, currentNames: names);
+  }
+
+  Future<void> _chooseDate(bool isStart) async {
+    final value = await showDatePicker(context: context,
+      initialDate: (isStart ? _from : _to) ?? DateTime.now(),
+      firstDate: DateTime(2000), lastDate: DateTime(2100));
+    if (value != null && mounted) setState(() { if (isStart) { _from = value; } else { _to = value; } });
+  }
+
+  String _dateLabel(DateTime? d) => d == null ? 'Tutte le date' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  Future<void> _copyVisibleCsv() async {
+    final exportInterrupted = _showInterrupted;
+    final records = await (exportInterrupted ? _interrupted : _history);
+    if (exportInterrupted != _showInterrupted) return;
+    final filtered = _filtered(records);
+    if (filtered.isEmpty || !mounted) return;
+    final csv = MatchHistoryAdvanced.csv(
+      finished: exportInterrupted ? [] : filtered,
+      interrupted: exportInterrupted ? filtered : []);
+    await Clipboard.setData(ClipboardData(text: csv));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('CSV copiato negli appunti. Incollalo in un file o in un foglio di calcolo.')));
+  }
+
+  Widget _filters() {
+    final players = (_directory['players'] as List).cast<Map<String, dynamic>>();
+    final pairs = (_directory['pairs'] as List).cast<Map<String, dynamic>>();
+    return Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: Card(
+      color: const Color(0xFF0F172A),
+      child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(controller: _searchController, onChanged: (text) => setState(() => _query = text),
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(labelText: 'Cerca squadra o giocatore',
+              labelStyle: TextStyle(color: Colors.white70), prefixIcon: Icon(Icons.search, color: Colors.white70))),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: DropdownButtonFormField<String>(
+              key: ValueKey('history-player-$_playerId'), initialValue: _playerId,
+              dropdownColor: const Color(0xFF1E293B), isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Giocatore', labelStyle: TextStyle(color: Colors.white70)),
+              style: const TextStyle(color: Colors.white),
+              items: [const DropdownMenuItem(value: '', child: Text('Tutti')),
+                ...players.map((p) => DropdownMenuItem(value: p['id'] as String, child: Text(p['name'] as String)))],
+              onChanged: (v) => setState(() => _playerId = v ?? ''),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: DropdownButtonFormField<String>(
+              key: ValueKey('history-pair-$_pairId'), initialValue: _pairId,
+              dropdownColor: const Color(0xFF1E293B), isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Coppia', labelStyle: TextStyle(color: Colors.white70)),
+              style: const TextStyle(color: Colors.white),
+              items: [const DropdownMenuItem(value: '', child: Text('Tutte')),
+                ...pairs.map((p) => DropdownMenuItem(value: p['id'] as String, child: Text(p['name'] as String)))],
+              onChanged: (v) => setState(() => _pairId = v ?? ''),
+            )),
+          ]),
+          Wrap(spacing: 6, runSpacing: 4, alignment: WrapAlignment.spaceBetween, children: [
+            TextButton.icon(onPressed: () => _chooseDate(true), icon: const Icon(Icons.event), label: Text('Dal: ${_dateLabel(_from)}')),
+            TextButton.icon(onPressed: () => _chooseDate(false), icon: const Icon(Icons.event), label: Text('Al: ${_dateLabel(_to)}')),
+          ]),
+          Wrap(spacing: 8, alignment: WrapAlignment.end, children: [
+            TextButton.icon(onPressed: () => setState(() { _query = ''; _playerId = ''; _pairId = ''; _from = null; _to = null; _searchController.clear(); }),
+              icon: const Icon(Icons.refresh), label: const Text('Azzera filtri')),
+            OutlinedButton.icon(onPressed: _copyVisibleCsv, icon: const Icon(Icons.copy), label: const Text('Copia CSV')),
+          ]),
+        ],
+      )),
+    ));
+  }
+
+  @override
+  void dispose() { _searchController.dispose(); super.dispose(); }
+
 
   @override
   void initState() {
     super.initState();
     _reload();
+    PlayerDirectoryStore.load().then((directory) {
+      if (mounted && directory != null) setState(() => _directory = directory);
+    });
   }
 
   void _reload() {
@@ -88,6 +192,24 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
     }
   }
 
+  void _showInterruptedDetails(Map<String, dynamic> item) {
+    final checkpoint = Map<String, dynamic>.from(item['checkpoint'] as Map);
+    final settings = Map<String, dynamic>.from(checkpoint['settings'] as Map);
+    final snap = Map<String, dynamic>.from(checkpoint['snapshot'] as Map);
+    final sets = (snap['completedSets'] as List).map((s) => _setLabel(Map<String, dynamic>.from(s as Map))).join(' · ');
+    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Dettagli partita interrotta'),
+      content: SingleChildScrollView(child: Text('Squadra A: ${settings['teamAName']}\n'
+        '${settings['player1Name']} · ${settings['player2Name']}\n\n'
+        'Squadra B: ${settings['teamBName']}\n'
+        '${settings['player3Name']} · ${settings['player4Name']}\n\n'
+        'Set conclusi: ${sets.isEmpty ? 'Nessuno' : sets}\n'
+        'Set corrente: ${snap['currentGamesA']}–${snap['currentGamesB']}\n'
+        'Formato: al meglio di ${settings['bestOfSets']} set')),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Chiudi'))],
+    ));
+  }
+
   Widget _interruptedItem(Map<String, dynamic> item) {
     final checkpoint = Map<String, dynamic>.from(item['checkpoint'] as Map);
     final settings = Map<String, dynamic>.from(checkpoint['settings'] as Map);
@@ -107,6 +229,7 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
           const SizedBox(height: 8),
           Text('Set in corso: ${snap['currentGamesA']}–${snap['currentGamesB']} · Set conclusi: ${(snap['completedSets'] as List).length}', style: const TextStyle(color: Colors.white70)),
           Wrap(spacing: 8, children: [
+            TextButton.icon(onPressed: () => _showInterruptedDetails(item), icon: const Icon(Icons.info_outline), label: const Text('Dettagli')),
             ElevatedButton.icon(onPressed: () => _resumeInterrupted(item), icon: const Icon(Icons.play_arrow), label: const Text('RIPRENDI')),
             TextButton.icon(onPressed: () => _deleteInterrupted(item), icon: const Icon(Icons.delete_outline, color: Colors.redAccent), label: const Text('Elimina')),
           ]),
@@ -126,13 +249,24 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
             child: Text('Concluse', style: TextStyle(color: _showInterrupted ? Colors.white70 : const Color(0xFFCCFF00)))),
           OutlinedButton(onPressed: () => setState(() => _showInterrupted = true),
             child: Text('Interrotte', style: TextStyle(color: _showInterrupted ? const Color(0xFFCCFF00) : Colors.white70))),
+          OutlinedButton.icon(onPressed: () => setState(() => _showFilters = !_showFilters),
+            icon: Icon(_showFilters ? Icons.expand_less : Icons.filter_list, color: const Color(0xFFCCFF00)),
+            label: Text(_showFilters ? 'Nascondi filtri' : 'Cerca e filtra')),
         ])),
+        if (_showFilters) SizedBox(
+          height: (MediaQuery.sizeOf(context).height * 0.42).clamp(135.0, 225.0),
+          child: SingleChildScrollView(child: _filters()),
+        ),
         Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(
         future: _showInterrupted ? _interrupted : _history,
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final items = snapshot.data!;
-          if (items.isEmpty) return Center(child: Text(_showInterrupted ? 'Nessuna partita interrotta.' : 'Nessuna partita conclusa salvata sul dispositivo.'));
+          final all = snapshot.data!;
+          final items = _filtered(all);
+          if (items.isEmpty) return Center(child: Text(all.isEmpty
+            ? (_showInterrupted ? 'Nessuna partita interrotta.' : 'Nessuna partita conclusa salvata sul dispositivo.')
+            : 'Nessuna partita corrisponde ai filtri.',
+            style: const TextStyle(color: Colors.white70)));
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: items.length,
