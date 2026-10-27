@@ -264,6 +264,42 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                 ],
               ),
 
+              if (!provider.isMatchOver)
+                Positioned(
+                  bottom: 56,
+                  right: 24,
+                  child: OutlinedButton.icon(
+                    onPressed: _isArchiving ? null : () async {
+                      final yes = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+                        title: const Text('Interrompere questa partita?'),
+                        content: const Text('Il punteggio verrà salvato fra le partite interrotte, e potrai riprenderlo in seguito.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annulla')),
+                          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Salva e interrompi')),
+                        ],
+                      ));
+                      if (!mounted || yes != true) return;
+                      setState(() => _isArchiving = true);
+                      provider.updateClock(_elapsedSeconds, false,
+                        breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+                      final ok = await provider.interruptAndArchiveMatch();
+                      if (!mounted) return;
+                      if (ok) {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+                        );
+                      } else {
+                        setState(() => _isArchiving = false);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Archiviazione non riuscita: la partita è ancora recuperabile.'),
+                        ));
+                      }
+                    },
+                    icon: const Icon(Icons.pause_circle_outline),
+                    label: Text(_isArchiving ? 'SALVATAGGIO…' : 'SALVA E INTERROMPI'),
+                  ),
+                ),
+
               if (provider.isMatchOver)
                 Positioned(
                   bottom: 56,

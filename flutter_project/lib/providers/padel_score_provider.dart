@@ -5,6 +5,7 @@ import '../models/padel_match_state.dart';
 import '../services/tts_service.dart';
 import '../services/match_checkpoint.dart';
 import '../services/match_history.dart';
+import '../services/match_interrupted.dart';
 
 class PadelScoreProvider extends ChangeNotifier {
   final TtsService _ttsService;
@@ -100,6 +101,49 @@ class PadelScoreProvider extends ChangeNotifier {
     if (!saved) _activeCheckpoint = true;
     _finalizingMatch = false;
     return saved;
+  }
+
+  /// Move the current unfinished match into the offline paused archive.
+  /// Wait for previous point writes before changing the active checkpoint.
+  Future<bool> interruptAndArchiveMatch() async {
+    if (_currentSnapshot.matchWinner != null || _finalizingMatch) return false;
+    _finalizingMatch = true;
+    final snapshot = _currentCheckpoint();
+    _activeCheckpoint = false;
+    var saved = false;
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        saved = await MatchInterruptedStore.save(prefs, snapshot);
+        if (saved) saved = await prefs.remove(MatchCheckpointCodec.key);
+      } catch (_) { saved = false; }
+    });
+    await _writeQueue;
+    if (!saved) _activeCheckpoint = true;
+    _finalizingMatch = false;
+    return saved;
+  }
+
+  /// Re-create an active checkpoint before removing the paused archive entry.
+  Future<bool> resumeInterruptedMatch(String id) async {
+    if (_activeCheckpoint || _pendingRecovery != null || _finalizingMatch) return false;
+    try {
+      await _writeQueue;
+      final prefs = await SharedPreferences.getInstance();
+      final list = MatchInterruptedStore.decode(prefs.getString(MatchInterruptedStore.key));
+      if (list == null) return false;
+      final items = list.where((item) => item['id'] == id);
+      if (items.isEmpty) return false;
+      final data = Map<String, dynamic>.from(items.first['checkpoint'] as Map);
+      final encoded = MatchCheckpointCodec.encode(data);
+      final decoded = MatchCheckpointCodec.decode(encoded);
+      if (decoded == null || !(await prefs.setString(MatchCheckpointCodec.key, encoded))) return false;
+      _pendingRecovery = decoded;
+      if (!resumeSavedMatch()) return false;
+      await flushCheckpoint();
+      await MatchInterruptedStore.delete(id); // If deletion fails, active match is still safe.
+      return true;
+    } catch (_) { return false; }
   }
 
   void _scheduleCheckpoint() {

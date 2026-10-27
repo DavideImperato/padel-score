@@ -12,6 +12,7 @@ import { PadelMatchStore } from './engine/padelMatchStore';
 import { loadCheckpoint, saveCheckpoint, clearCheckpoint, MatchCheckpoint, MatchRuntime } from './engine/matchPersistence';
 import { padelAudio } from './utils/padelAudio';
 import { archiveCompletedMatch } from './engine/matchHistory';
+import { archiveInterruptedMatch, findInterruptedMatch, removeInterruptedMatch } from './engine/matchInterrupted';
 import { MatchHistoryScreen } from './components/MatchHistoryScreen';
 import { BluetoothKeyListener } from './utils/bluetoothListener';
 import { TeamColumn } from './components/TeamColumn';
@@ -52,6 +53,7 @@ const DEFAULT_SETTINGS: MatchSettings = {
 export default function App() {
   // Schermata: 'setup' (default per "/"), 'scoreboard', o 'summary' (riepilogo finale)
   const [currentView, setCurrentView] = useState<'setup' | 'scoreboard' | 'summary' | 'history'>('setup');
+  const [summaryArchiveError, setSummaryArchiveError] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<MatchSettings>(() => {
     try {
@@ -146,9 +148,7 @@ export default function App() {
   useEffect(() => { persistCurrentMatch(); }, [matchSeconds, isTimerRunning, isSidesSwapped,
     breakSecondsLeft, isBreakActive, currentView, settings, persistCurrentMatch]);
 
-  const resumeCheckpoint = () => {
-    if (!recoveryCandidate) return;
-    const saved = recoveryCandidate;
+  const restoreSavedCheckpoint = (saved: MatchCheckpoint) => {
     store.restoreMatch(saved.settings, saved.state);
     setSettings(saved.settings);
     archiveMatchIdRef.current = saved.runtime.matchId || archiveMatchIdRef.current;
@@ -160,6 +160,19 @@ export default function App() {
     setCurrentView(saved.state.snapshot.matchWinner || saved.runtime.view === 'summary' ? 'summary' : 'scoreboard');
     setRecoveryCandidate(null);
     persistenceActiveRef.current = true;
+  };
+
+  const resumeCheckpoint = () => { if (recoveryCandidate) restoreSavedCheckpoint(recoveryCandidate); };
+
+  const resumeInterruptedFromHistory = (id: string): boolean => {
+    const saved = findInterruptedMatch(window.localStorage, id);
+    if (!saved || persistenceActiveRef.current) return false;
+    const checkpoint = saved.checkpoint;
+    // Make the active checkpoint durable before removing its archived copy.
+    if (!saveCheckpoint(window.localStorage, checkpoint.settings, checkpoint.state, checkpoint.runtime)) return false;
+    restoreSavedCheckpoint(checkpoint);
+    removeInterruptedMatch(window.localStorage, id);
+    return true;
   };
 
   const discardCheckpoint = () => {
@@ -516,6 +529,7 @@ export default function App() {
     triggerHaptic([80, 40, 80]);
     padelAudio.unlockAudio();
     padelAudio.speak('Partita conclusa. Visualizzazione del riepilogo finale.');
+    setSummaryArchiveError(null);
     setCurrentView('summary');
   }, []);
 
@@ -586,6 +600,7 @@ export default function App() {
     setMatchSeconds(0);
     setIsTimerRunning(true); // Cronometro attivo automaticamente da 0
 
+    setSummaryArchiveError(null);
     archiveMatchIdRef.current = `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const initialPlayer = store.startNewMatch(newSettings);
     persistenceActiveRef.current = true;
@@ -701,7 +716,7 @@ export default function App() {
   }
 
   if (currentView === 'history') {
-    return <MatchHistoryScreen onBack={() => setCurrentView('setup')} />;
+    return <MatchHistoryScreen onBack={() => setCurrentView('setup')} onResumeInterrupted={resumeInterruptedFromHistory} />;
   }
 
   // RENDER 2: SCHERMATA DI RIEPILOGO FINALE (MATCH RESULT)
@@ -711,7 +726,20 @@ export default function App() {
         snapshot={snapshot}
         settings={settings}
         matchDurationFormatted={formatMatchTime(matchSeconds)}
+        archiveError={summaryArchiveError}
         onGoToSetup={() => {
+          setSummaryArchiveError(null);
+          if (!snapshot.matchWinner && typeof window !== 'undefined') {
+            const checkpoint: MatchCheckpoint = {
+              version: 1, savedAt: Date.now(), settings: store.getSettings(), state: store.getState(),
+              runtime: { ...runtimeRef.current, isTimerRunning: false, view: 'scoreboard', matchId: archiveMatchIdRef.current },
+            };
+            const result = archiveInterruptedMatch(window.localStorage, checkpoint);
+            if (result !== 'saved' && result !== 'exists') {
+              setSummaryArchiveError('Non è stato possibile archiviare la partita interrotta. Riprovare senza uscire.');
+              return;
+            }
+          }
           if (snapshot.matchWinner && typeof window !== 'undefined') {
             const status = archiveCompletedMatch(window.localStorage, archiveMatchIdRef.current,
               store.getSettings(), snapshot, matchSeconds);

@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CalendarDays, Clock3, Trash2, Trophy, AlertTriangle } from 'lucide-react';
 import { ArchivedMatch, loadMatchHistory, removeArchivedMatch } from '../engine/matchHistory';
+import { InterruptedMatch, loadInterruptedMatches, removeInterruptedMatch } from '../engine/matchInterrupted';
 
-interface Props { onBack: () => void }
+interface Props { onBack: () => void; onResumeInterrupted: (id: string) => boolean }
 const formatDuration = (n: number) => `${Math.floor(n / 3600).toString().padStart(2, '0')}:${Math.floor(n % 3600 / 60).toString().padStart(2, '0')}:${(n % 60).toString().padStart(2, '0')}`;
 const setLabel = (s: ArchivedMatch['sets'][number]): string =>
   s.isMatchTieBreak ? `MTB ${s.tieBreakPointsA ?? 0}–${s.tieBreakPointsB ?? 0}` :
   `${s.gamesA}–${s.gamesB}${s.tieBreakPointsA != null && s.tieBreakPointsB != null ? ` (TB ${s.tieBreakPointsA}–${s.tieBreakPointsB})` : ''}`;
 
-export const MatchHistoryScreen: React.FC<Props> = ({ onBack }) => {
+export const MatchHistoryScreen: React.FC<Props> = ({ onBack, onResumeInterrupted }) => {
   const [items, setItems] = useState<ArchivedMatch[]>(() => loadMatchHistory(window.localStorage));
   const [opened, setOpened] = useState<string | null>(null);
+  const [section, setSection] = useState<'finished' | 'interrupted'>('finished');
+  const [interrupted, setInterrupted] = useState<InterruptedMatch[]>(() => loadInterruptedMatches(window.localStorage));
+  const [pendingInterruptedDelete, setPendingInterruptedDelete] = useState<InterruptedMatch | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ArchivedMatch | null>(null);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
 
@@ -36,20 +40,35 @@ export const MatchHistoryScreen: React.FC<Props> = ({ onBack }) => {
     setFeedback({ error: false, text: 'Partita eliminata dallo storico.' });
   };
 
+  const confirmInterruptedDelete = () => {
+    if (!pendingInterruptedDelete) return;
+    if (!removeInterruptedMatch(window.localStorage, pendingInterruptedDelete.id)) {
+      setFeedback({error: true, text: 'Non è stato possibile eliminare la partita interrotta.'});
+    } else {
+      setInterrupted(loadInterruptedMatches(window.localStorage));
+      setFeedback({error: false, text: 'Partita interrotta eliminata.'});
+    }
+    setPendingInterruptedDelete(null);
+  };
+
   return (
     <div className="min-h-screen bg-[#070B14] text-white overflow-y-auto p-5 sm:p-8">
       <div className="mx-auto max-w-4xl space-y-5">
         <header className="flex flex-wrap items-center gap-4 border-b border-slate-800 pb-5">
           <button type="button" onClick={onBack} className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-3 text-sm font-bold"><ArrowLeft size={17}/> Setup</button>
-          <div><h1 className="text-xl font-black tracking-wide text-[#CCFF00]">STORICO PARTITE</h1><p className="text-sm text-slate-400">{items.length} partite concluse · Dati salvati sul dispositivo</p></div>
+          <div><h1 className="text-xl font-black tracking-wide text-[#CCFF00]">STORICO PARTITE</h1><p className="text-sm text-slate-400">{items.length} concluse · {interrupted.length} interrotte · Offline</p></div>
         </header>
+        <div className="flex flex-wrap gap-3" role="tablist" aria-label="Tipo di partite">
+          <button type="button" role="tab" aria-selected={section === 'finished'} onClick={() => setSection('finished')} className={`rounded-xl px-4 py-3 font-bold ${section === 'finished' ? 'bg-[#CCFF00] text-slate-950' : 'bg-slate-800 text-white'}`}>Concluse ({items.length})</button>
+          <button type="button" role="tab" aria-selected={section === 'interrupted'} onClick={() => setSection('interrupted')} className={`rounded-xl px-4 py-3 font-bold ${section === 'interrupted' ? 'bg-[#CCFF00] text-slate-950' : 'bg-slate-800 text-white'}`}>Interrotte ({interrupted.length})</button>
+        </div>
         {feedback && (
           <div role="status" aria-live="polite" className={`rounded-xl border p-3 text-sm ${feedback.error ? 'border-rose-700 bg-rose-950/60 text-rose-200' : 'border-emerald-700 bg-emerald-950/50 text-emerald-200'}`}>
             {feedback.text}
           </div>
         )}
-        {!items.length && <div className="rounded-2xl border border-slate-700 bg-slate-900 p-8 text-center text-slate-300">Nessuna partita conclusa salvata. Termina un match e scegli di archiviarlo dal riepilogo.</div>}
-        {items.map(item => (
+        {section === 'finished' && !items.length && <div className="rounded-2xl border border-slate-700 bg-slate-900 p-8 text-center text-slate-300">Nessuna partita conclusa salvata. Termina un match e scegli di archiviarlo dal riepilogo.</div>}
+        {section === 'finished' && items.map(item => (
           <article key={item.id} className="rounded-2xl border border-slate-700 bg-slate-900 p-4 sm:p-5 space-y-3">
             <div className="flex flex-wrap justify-between items-center gap-3">
               <div className="flex items-center gap-2 text-[#CCFF00] font-black"><Trophy size={17}/>{item.winner === 'teamA' ? item.teamAName : item.teamBName} · Vincitore</div>
@@ -67,7 +86,23 @@ export const MatchHistoryScreen: React.FC<Props> = ({ onBack }) => {
             {opened === item.id && <div className="grid gap-2 sm:grid-cols-2 text-sm text-slate-300 border-t border-slate-700 pt-3"><div><strong className="text-[#CCFF00]">{item.teamAName}</strong><p>{item.players[0]} · {item.players[1]}</p></div><div><strong className="text-cyan-300">{item.teamBName}</strong><p>{item.players[2]} · {item.players[3]}</p></div><p>Formato: al meglio di {item.bestOfSets} set · {item.gamesPerSet} game</p></div>}
           </article>
         ))}
+        {section === 'interrupted' && !interrupted.length && <div className="rounded-xl border border-slate-700 bg-slate-900 p-7 text-center text-slate-300">Nessuna partita interrotta archiviata. Puoi interrompere una partita dal riepilogo senza assegnare un vincitore.</div>}
+        {section === 'interrupted' && interrupted.map(item => {
+          const { settings, state, runtime } = item.checkpoint;
+          const snap = state.snapshot;
+          return <article key={item.id} className="rounded-2xl border border-slate-700 bg-slate-900 p-5 space-y-3">
+            <div className="flex justify-between items-center gap-3"><strong className="text-amber-300">Partita interrotta</strong><button type="button" aria-label={`Elimina partita interrotta ${settings.teamAName} contro ${settings.teamBName}`} onClick={() => { setFeedback(null); setPendingInterruptedDelete(item); }} className="rounded-lg border border-rose-700/50 p-2 text-rose-300"><Trash2 size={17}/></button></div>
+            <p className="font-bold text-white text-center">{settings.teamAName} <span className="text-slate-500">VS</span> {settings.teamBName}</p>
+            <div className="text-center text-sm text-slate-300">Set conclusi: {snap.completedSets.map(s => `${s.gamesA}–${s.gamesB}`).join(', ') || 'nessuno'} · Set in corso: {snap.currentGamesA}–{snap.currentGamesB}{snap.isTieBreak ? ` · TB ${snap.tieBreakPointsA}–${snap.tieBreakPointsB}` : ''}</div>
+            <p className="text-center text-xs text-slate-400">Salvata: {new Date(item.interruptedAt).toLocaleString('it-IT')} · Durata: {formatDuration(runtime.matchSeconds)}</p>
+            <button type="button" onClick={() => {
+              if (!onResumeInterrupted(item.id)) setFeedback({error:true,text:'Impossibile riprendere la partita. I dati salvati restano disponibili.'});
+            }} className="w-full rounded-xl bg-[#CCFF00] py-3 font-black text-slate-950">Riprendi partita</button>
+          </article>;
+        })}
       </div>
+
+      {pendingInterruptedDelete && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4"><div role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 space-y-5"><h2 className="text-lg font-black">Eliminare la partita interrotta?</h2><p className="text-sm text-slate-300">Non sarà più possibile riprendere {pendingInterruptedDelete.checkpoint.settings.teamAName} contro {pendingInterruptedDelete.checkpoint.settings.teamBName}.</p><div className="flex justify-end gap-3"><button type="button" onClick={() => setPendingInterruptedDelete(null)} className="rounded-lg bg-slate-700 px-4 py-3">Annulla</button><button type="button" onClick={confirmInterruptedDelete} className="rounded-lg bg-rose-600 px-4 py-3 font-bold">Elimina definitivamente</button></div></div></div>}
 
       {/* Conferma interna all'app: window.confirm può essere bloccato nelle anteprime iframe. */}
       {pendingDelete && (

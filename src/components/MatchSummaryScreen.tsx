@@ -7,6 +7,7 @@ interface MatchSummaryScreenProps {
   settings: MatchSettings;
   matchDurationFormatted: string;
   onGoToSetup: () => void;
+  archiveError?: string | null;
   onReturnToScoreboard?: () => void;
 }
 
@@ -15,6 +16,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
   settings,
   matchDurationFormatted,
   onGoToSetup,
+  archiveError,
   onReturnToScoreboard,
 }) => {
   // Combine completed sets and any in-progress set
@@ -64,27 +66,8 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
     });
   }
 
-  // Determine overall winner
-  const setsWonA = snapshot.completedSets.filter((s) => s.winner === 'teamA').length;
-  const setsWonB = snapshot.completedSets.filter((s) => s.winner === 'teamB').length;
-
-  let overallWinner: Team | 'tie' = 'tie';
-  if (snapshot.matchWinner) {
-    overallWinner = snapshot.matchWinner;
-  } else if (setsWonA > setsWonB) {
-    overallWinner = 'teamA';
-  } else if (setsWonB > setsWonA) {
-    overallWinner = 'teamB';
-  } else {
-    // Check total games
-    const totalGamesA =
-      snapshot.completedSets.reduce((sum, s) => sum + s.gamesA, 0) + snapshot.currentGamesA;
-    const totalGamesB =
-      snapshot.completedSets.reduce((sum, s) => sum + s.gamesB, 0) + snapshot.currentGamesB;
-    if (totalGamesA > totalGamesB) overallWinner = 'teamA';
-    else if (totalGamesB > totalGamesA) overallWinner = 'teamB';
-    else overallWinner = 'tie';
-  }
+  // Non assegnare un vincitore provvisorio a una partita interrotta.
+  const overallWinner: Team | 'tie' = snapshot.matchWinner ?? 'tie';
 
   const isTeamAWinner = overallWinner === 'teamA';
   const isTeamBWinner = overallWinner === 'teamB';
@@ -94,13 +77,13 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
     ? settings.teamAName
     : isTeamBWinner
     ? settings.teamBName
-    : 'Parità';
+    : snapshot.matchWinner ? 'Parità' : 'Partita interrotta';
 
   const winnerPlayers = isTeamAWinner
     ? `${settings.player1Name} & ${settings.player2Name}`
     : isTeamBWinner
     ? `${settings.player3Name} & ${settings.player4Name}`
-    : `${settings.player1Name}, ${settings.player2Name}, ${settings.player3Name}, ${settings.player4Name}`;
+    : snapshot.matchWinner ? 'Parità' : 'Nessun vincitore assegnato';
 
   const totalGamesTeamA =
     snapshot.completedSets.reduce((acc, s) => acc + s.gamesA, 0) + snapshot.currentGamesA;
@@ -109,6 +92,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
 
   return (
     <div className="min-h-screen w-full bg-[#070B14] text-white flex flex-col font-sans select-none overflow-y-auto">
+      {archiveError && <div role="alert" className="mx-5 mt-3 rounded-xl border border-rose-700 bg-rose-950/70 p-3 text-rose-100 text-sm">{archiveError}</div>}
       {/* Header */}
       <header className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -117,7 +101,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
           </div>
           <div>
             <h1 className="text-base sm:text-lg font-black tracking-wider uppercase text-white">
-              PADEL SCOREBOT — RIEPILOGO FINALE MATCH
+              {snapshot.matchWinner ? 'PADEL SCOREBOT — RIEPILOGO FINALE MATCH' : 'PADEL SCOREBOT — RIEPILOGO PARTITA INTERROTTA'}
             </h1>
           </div>
         </div>
@@ -148,7 +132,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
           </div>
 
           <div className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-400 mb-1">
-            {isTie ? 'RISULTATO FINALE' : 'SQUADRA VINCITRICE'}
+            {!snapshot.matchWinner ? 'PARTITA NON CONCLUSA' : isTie ? 'RISULTATO FINALE' : 'SQUADRA VINCITRICE'}
           </div>
 
           <h2
@@ -300,7 +284,7 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
             className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-[#CCFF00] hover:bg-[#b8e600] text-slate-950 font-black text-base sm:text-lg tracking-wider uppercase shadow-xl shadow-[#CCFF00]/30 transition-all flex items-center justify-center gap-3 cursor-pointer active:scale-95"
           >
             <ArrowLeft className="w-5 h-5" />
-            <span>{snapshot.matchWinner ? 'Salva nello storico e torna al setup' : 'Torna al setup senza archiviare'}</span>
+            <span>{snapshot.matchWinner ? 'Salva nello storico e torna al setup' : 'Salva tra le interrotte e torna al setup'}</span>
           </button>
         </div>
       </main>
