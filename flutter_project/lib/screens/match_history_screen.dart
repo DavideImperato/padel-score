@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_content_safe_area.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/match_history.dart';
@@ -243,7 +244,8 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF070B14),
       appBar: AppBar(title: const Text('STORICO PARTITE'), backgroundColor: const Color(0xFF0F172A)),
-      body: Column(children: [
+      body: AppContentSafeArea(
+        child: Column(children: [
         Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 12, children: [
           OutlinedButton(onPressed: () => setState(() => _showInterrupted = false),
             child: Text('Concluse', style: TextStyle(color: _showInterrupted ? Colors.white70 : const Color(0xFFCCFF00)))),
@@ -301,7 +303,8 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
           );
         },
       )),
-      ]),
+        ]),
+      ),
     );
   }
 }

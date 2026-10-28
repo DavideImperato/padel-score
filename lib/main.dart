@@ -47,7 +47,7 @@ class PadelScoreBotApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF070B14),
+        scaffoldBackgroundColor: const Color(0xFF101D3A),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFFCCFF00),   // Giallo Fluorescente Padel
           secondary: Color(0xFF00E5FF), // Ciano Elettrico

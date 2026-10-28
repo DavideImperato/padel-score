@@ -6,6 +6,8 @@ import '../services/tts_service.dart';
 import '../services/match_checkpoint.dart';
 import '../services/match_history.dart';
 import '../services/match_interrupted.dart';
+import '../services/watch_match_sync.dart';
+import '../services/watch_command_gate.dart';
 
 class PadelScoreProvider extends ChangeNotifier {
   final TtsService _ttsService;
@@ -41,6 +43,119 @@ class PadelScoreProvider extends ChangeNotifier {
   String _matchArchiveId = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
   Map<String, dynamic>? _pendingRecovery;
   Future<void> _writeQueue = Future<void>.value();
+  final WatchMatchSync _watchSync = const WatchMatchSync();
+  final WatchCommandGate _watchCommands = WatchCommandGate();
+  int _watchStartSequence = 0;
+  int _watchEndSequence = 0;
+  int get watchStartSequence => _watchStartSequence;
+  int get watchEndSequence => _watchEndSequence;
+  bool get hasActiveMatch => _activeCheckpoint;
+  String get watchMatchId => _matchArchiveId;
+  Future<Map<String, dynamic>> handleWatchCommand(Map<dynamic, dynamic> message) =>
+      _handleWatchCommand(message);
+
+  Future<Map<String, dynamic>> _handleWatchCommand(Map<dynamic, dynamic> message) =>
+      _watchCommands.accept(message, currentMatchId: () => _matchArchiveId,
+          execute: _executeWatchAction);
+
+  Future<Map<String, dynamic>> _executeWatchAction(String action) async {
+    if (_finalizingMatch) return {'ok': false, 'code': 'match_busy'};
+    if (action == 'start_match') {
+      if (_pendingRecovery != null) return {'ok': false, 'code': 'recovery_required'};
+      if (_activeCheckpoint) {
+        if (_currentSnapshot.matchWinner != null) {
+          return {'ok': false, 'code': 'already_finished'};
+        }
+        updateClock(_elapsedSeconds, true,
+            breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+        notifyListeners();
+        return {'ok': true, 'code': 'resumed'};
+      }
+      // Nuovo match con le impostazioni e i nomi gia` configurati su iPhone.
+      setupMatch(team1: _teamAName, team2: _teamBName,
+        player1: _player1Name, player2: _player2Name,
+        player3: _player3Name, player4: _player4Name,
+        firstServerPlayerId: _firstServerPlayerId,
+        goldenPoint: _isGoldenPoint,
+        advantagesBeforeGoldenPoint: _advantagesBeforeGoldenPoint,
+        bestOfSets: _bestOfSets, shortSets: _shortSets,
+        decidingMatchTieBreak: _decidingMatchTieBreak,
+        decidingTieBreakPoints: _decidingTieBreakPoints, playerIds: _playerIds);
+      _watchStartSequence++;
+      super.notifyListeners();
+      return {'ok': true, 'code': 'started'};
+    }
+    if (!_activeCheckpoint) return {'ok': false, 'code': 'no_active_match'};
+    if (action == 'end_match') {
+      final saved = _currentSnapshot.matchWinner == null
+          ? await interruptAndArchiveMatch()
+          : await archiveFinishedMatch();
+      if (!saved) return {'ok': false, 'code': 'save_failed'};
+      _watchEndSequence++;
+      super.notifyListeners();
+      return {'ok': true, 'code': 'archived'};
+    }
+    // Undo puo` correggere anche l'ultimo punto che ha concluso il match,
+    // finche` il risultato non e` stato archiviato.
+    if (action == 'undo') {
+      if (!canUndo) return {'ok': false, 'code': 'nothing_to_undo'};
+      undo();
+      return {'ok': true, 'code': 'undone'};
+    }
+    if (_currentSnapshot.matchWinner != null) {
+      return {'ok': false, 'code': 'already_finished'};
+    }
+    switch (action) {
+      case 'switch_sides':
+        // Cambia esclusivamente il lato visualizzato; il risultato non cambia.
+        switchSides();
+        return {'ok': true, 'code': 'sides_switched'};
+      case 'change_server':
+        // Non permettere di sostituire il battitore nel corso del game.
+        if (_currentSnapshot.isTieBreak || _currentSnapshot.rawPointsA != 0 ||
+            _currentSnapshot.rawPointsB != 0) {
+          return {'ok': false, 'code': 'server_change_between_games_only'};
+        }
+        toggleServingTeam();
+        return {'ok': true, 'code': 'server_changed'};
+      case 'rule_golden':
+      case 'rule_star':
+      case 'rule_one_advantage':
+      case 'rule_traditional':
+        // La modalita` non fa parte degli snapshot Undo. Cambiarla dopo il
+        // primo punto renderebbe incoerenti le azioni di annullamento.
+        if (_history.isNotEmpty || _currentSnapshot.completedSets.isNotEmpty ||
+            _currentSnapshot.currentGamesA != 0 ||
+            _currentSnapshot.currentGamesB != 0 ||
+            _currentSnapshot.rawPointsA != 0 ||
+            _currentSnapshot.rawPointsB != 0 ||
+            _currentSnapshot.isTieBreak) {
+          return {'ok': false, 'code': 'rule_locked_after_first_point'};
+        }
+        if (action == 'rule_traditional') {
+          setGoldenPoint(false);
+        } else {
+          setGoldenPoint(true, action == 'rule_star' ? 2 :
+              (action == 'rule_one_advantage' ? 1 : 0));
+        }
+        return {'ok': true, 'code': 'rule_updated'};
+      case 'point_a':
+        addPoint(Team.teamA);
+        return {'ok': true, 'code': 'point_a'};
+      case 'point_b':
+        addPoint(Team.teamB);
+        return {'ok': true, 'code': 'point_b'};
+      case 'pause_match':
+      case 'resume_match':
+        updateClock(_elapsedSeconds, action == 'resume_match',
+            breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+        notifyListeners();
+        return {'ok': true, 'code': action == 'pause_match' ? 'paused' : 'resumed'};
+    }
+    return {'ok': false, 'code': 'unsupported_action'};
+  }
+
+  bool _lastClockRunningOnWatch = true;
   int _elapsedSeconds = 0;
   bool _isTimerRunning = true;
   int _breakSecondsLeft = 0;
@@ -103,6 +218,7 @@ class PadelScoreProvider extends ChangeNotifier {
     await _writeQueue;
     if (!saved) _activeCheckpoint = true;
     _finalizingMatch = false;
+    _publishWatchState();
     return saved;
   }
 
@@ -124,6 +240,7 @@ class PadelScoreProvider extends ChangeNotifier {
     await _writeQueue;
     if (!saved) _activeCheckpoint = true;
     _finalizingMatch = false;
+    _publishWatchState();
     return saved;
   }
 
@@ -160,9 +277,47 @@ class PadelScoreProvider extends ChangeNotifier {
     });
   }
 
+  /// Il provider iPhone e` l'unica fonte del risultato.
+  /// Invio non bloccante: se il Watch e` assente, il punteggio continua.
+  void _publishWatchState() {
+    final payload = buildWatchMatchState(
+      matchId: _matchArchiveId,
+      active: _activeCheckpoint,
+      awaitingRecovery: _pendingRecovery != null,
+      snapshot: _currentSnapshot,
+      teamAName: _teamAName,
+      teamBName: _teamBName,
+      players: [_player1Name, _player2Name, _player3Name, _player4Name],
+      servingPlayer: currentServingPlayerName,
+      servingPlayerId: currentServerPlayerId,
+      goldenPoint: _isGoldenPoint,
+      advantagesBeforeGoldenPoint: _advantagesBeforeGoldenPoint,
+      shortSets: _shortSets,
+      bestOfSets: _bestOfSets,
+      decidingMatchTieBreak: _decidingMatchTieBreak,
+      decidingTieBreakPoints: _decidingTieBreakPoints,
+      elapsedSeconds: _elapsedSeconds,
+      timerRunning: _isTimerRunning,
+      canUndo: canUndo,
+      sidesSwapped: _isSidesSwapped,
+      canChangeRules: _activeCheckpoint &&
+          _currentSnapshot.matchWinner == null && _history.isEmpty &&
+          _currentSnapshot.completedSets.isEmpty &&
+          _currentSnapshot.currentGamesA == 0 &&
+          _currentSnapshot.currentGamesB == 0 &&
+          _currentSnapshot.rawPointsA == 0 && _currentSnapshot.rawPointsB == 0 &&
+          !_currentSnapshot.isTieBreak,
+      canChangeServer: _activeCheckpoint &&
+          _currentSnapshot.matchWinner == null && !_currentSnapshot.isTieBreak &&
+          _currentSnapshot.rawPointsA == 0 && _currentSnapshot.rawPointsB == 0,
+    );
+    unawaited(_watchSync.publish(payload));
+  }
+
   @override
   void notifyListeners() {
     _scheduleCheckpoint();
+    _publishWatchState();
     super.notifyListeners();
   }
 
@@ -173,6 +328,11 @@ class PadelScoreProvider extends ChangeNotifier {
     _breakSecondsLeft = breakSeconds;
     _isBreakActive = breakActive;
     _scheduleCheckpoint();
+    // 15 s bastano per il cronometro Watch, ma le pause si notificano subito.
+    if (seconds % 15 == 0 || running != _lastClockRunningOnWatch) {
+      _publishWatchState();
+    }
+    _lastClockRunningOnWatch = running;
   }
 
   /// Ripristino esplicito: nessun annuncio TTS e nessun nuovo punto.
@@ -221,6 +381,7 @@ class PadelScoreProvider extends ChangeNotifier {
     _writeQueue = _writeQueue.then((_) async {
       try { await (await SharedPreferences.getInstance()).remove(MatchCheckpointCodec.key); } catch (_) {}
     });
+    _publishWatchState();
     super.notifyListeners();
   }
 
@@ -233,7 +394,14 @@ class PadelScoreProvider extends ChangeNotifier {
 
   PadelScoreProvider({TtsService? ttsService})
       : _ttsService = ttsService ?? TtsService() {
+    _watchSync.registerCommandHandler(_handleWatchCommand);
     _loadPreferences();
+  }
+
+  @override
+  void dispose() {
+    _watchSync.unregisterCommandHandler();
+    super.dispose();
   }
 
   // Getters

@@ -19,6 +19,28 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
 
   // Cronometro durata del match
   bool _isArchiving = false;
+  late PadelScoreProvider _provider;
+  int _watchEndSeen = 0;
+  bool _watchExitScheduled = false;
+
+  void _onProviderChanged() {
+    if (!mounted) return;
+    // Pausa/riprendi impartiti dal Watch aggiornano anche il timer della UI.
+    if (_isTimerRunning != _provider.isTimerRunning) {
+      setState(() => _isTimerRunning = _provider.isTimerRunning);
+    }
+    if (_provider.watchEndSequence != _watchEndSeen && !_watchExitScheduled) {
+      _watchEndSeen = _provider.watchEndSequence;
+      _watchExitScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+        );
+      });
+    }
+  }
+
   Timer? _matchTimer;
   int _elapsedSeconds = 0;
   bool _isTimerRunning = true;
@@ -42,6 +64,9 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
 
     // 2. Inizializzazione del servizio telecomando Bluetooth con debounce e feedback visivo
     final provider = context.read<PadelScoreProvider>();
+    _provider = provider;
+    _watchEndSeen = provider.watchEndSequence;
+    provider.addListener(_onProviderChanged);
     _elapsedSeconds = provider.elapsedSeconds;
     _isTimerRunning = provider.isTimerRunning;
     _breakSecondsLeft = provider.breakSecondsLeft;
@@ -171,6 +196,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     _breakTimer?.cancel();
     _feedbackDismissTimer?.cancel();
     _keyService.dispose();
+    _provider.removeListener(_onProviderChanged);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -190,7 +216,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
       autofocus: true,
       onKeyEvent: (event) => _keyService.handleKeyEvent(_keyService.focusNode, event),
       child: Scaffold(
-        backgroundColor: const Color(0xFF070B14),
+        backgroundColor: const Color(0xFF101D3A),
         body: SafeArea(
           child: Stack(
             children: [
@@ -264,76 +290,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                 ],
               ),
 
-              if (!provider.isMatchOver)
-                Positioned(
-                  bottom: 56,
-                  right: 24,
-                  child: OutlinedButton.icon(
-                    onPressed: _isArchiving ? null : () async {
-                      final yes = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-                        title: const Text('Interrompere questa partita?'),
-                        content: const Text('Il punteggio verrà salvato fra le partite interrotte, e potrai riprenderlo in seguito.'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annulla')),
-                          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Salva e interrompi')),
-                        ],
-                      ));
-                      if (!mounted || yes != true) return;
-                      setState(() => _isArchiving = true);
-                      provider.updateClock(_elapsedSeconds, false,
-                        breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
-                      final ok = await provider.interruptAndArchiveMatch();
-                      if (!mounted) return;
-                      if (ok) {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-                        );
-                      } else {
-                        setState(() => _isArchiving = false);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text('Archiviazione non riuscita: la partita è ancora recuperabile.'),
-                        ));
-                      }
-                    },
-                    icon: const Icon(Icons.pause_circle_outline),
-                    label: Text(_isArchiving ? 'SALVATAGGIO…' : 'SALVA E INTERROMPI'),
-                  ),
-                ),
-
-              if (provider.isMatchOver)
-                Positioned(
-                  bottom: 56,
-                  right: 24,
-                  child: ElevatedButton.icon(
-                    onPressed: _isArchiving ? null : () async {
-                      setState(() => _isArchiving = true);
-                      // Sincronizza il timer locale nel provider prima dell'archiviazione.
-                      provider.updateClock(_elapsedSeconds, false,
-                        breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
-                      final ok = await provider.archiveFinishedMatch();
-                      if (!mounted) return;
-                      if (ok) {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-                        );
-                      } else {
-                        setState(() => _isArchiving = false);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text('Salvataggio non riuscito. Riprova prima di uscire.'),
-                        ));
-                      }
-                    },
-                    icon: const Icon(Icons.save),
-                    label: Text(_isArchiving ? 'SALVATAGGIO…' : 'SALVA NELLO STORICO E CHIUDI'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFCCFF00),
-                      foregroundColor: Colors.black,
-                    ),
-                  ),
-                ),
-
-              // OVERLAY CONTROLLI RAPIDI
-              _buildTopFloatingControls(context, provider),
+              // Le azioni sono raccolte nel menu della barra superiore: niente
+              // pulsanti flottanti che coprono game, giocatori o risultato.
 
               // OVERLAY NOTIFICHE (Tie-Break, Punto d'Oro, Vittoria Match)
               if (snapshot.isTieBreak || snapshot.isGoldenPointSituation(provider.isGoldenPoint, provider.advantagesBeforeGoldenPoint) || provider.isMatchOver)
@@ -397,195 +355,205 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     );
   }
 
-  /// Barra superiore con indicatori modalità, cronometro, setup button e guida telecomando
+  /// HUD compatto e responsivo: nessun contenuto può uscire dallo schermo.
   Widget _buildHeaderBar(
     BuildContext context,
     PadelScoreProvider provider,
     PadelMatchSnapshot snapshot,
   ) {
     final currentSetNumber = snapshot.completedSets.length + 1;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
-        border: Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 1.5)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Tasto Ritorno a Setup + Regola Punto d'Oro + Cronometro
-          Row(
+    final mode = !provider.isGoldenPoint
+        ? 'VANTAGGI'
+        : provider.advantagesBeforeGoldenPoint == 2
+            ? 'STAR POINT'
+            : 'PUNTO D’ORO';
+    final setLabel = provider.isMatchOver
+        ? 'PARTITA TERMINATA'
+        : snapshot.isMatchTieBreak
+            ? 'MATCH TIE-BREAK'
+            : snapshot.isTieBreak
+                ? 'TIE-BREAK · SET $currentSetNumber'
+                : 'SET $currentSetNumber';
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 650;
+        return Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: const BoxDecoration(
+            color: Color(0xFF0F172A),
+            border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+          ),
+          child: Row(
             children: [
-              // Pulsante per tornare al Setup o cambiare giocatori
               IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70, size: 16),
-                tooltip: 'Torna al Setup Match',
-                onPressed: () {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-                  );
-                },
-              ),
-              const SizedBox(width: 4),
-
-              GestureDetector(
-                // La modalità sportiva è informativa: si sceglie nel setup.
-                onTap: null,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: provider.isGoldenPoint ? const Color(0x22FACC15) : const Color(0x2238BDF8),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: provider.isGoldenPoint ? const Color(0xFFFACC15) : const Color(0xFF38BDF8),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        provider.isGoldenPoint ? Icons.stars_rounded : Icons.swap_horiz_rounded,
-                        size: 15,
-                        color: provider.isGoldenPoint ? const Color(0xFFFACC15) : const Color(0xFF38BDF8),
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        !provider.isGoldenPoint
-                            ? 'VANTAGGI CLASSICI'
-                            : provider.advantagesBeforeGoldenPoint == 2
-                                ? 'STAR POINT'
-                                : 'PUNTO D\'ORO',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.8,
-                          color: provider.isGoldenPoint ? const Color(0xFFFACC15) : const Color(0xFF38BDF8),
-                        ),
-                      ),
-                    ],
-                  ),
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Torna al setup',
+                icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: Colors.white70),
+                onPressed: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
                 ),
               ),
-
-              const SizedBox(width: 8),
-
-              // Cronometro Match
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _isTimerRunning = !_isTimerRunning;
-                  });
-                  provider.updateClock(_elapsedSeconds, _isTimerRunning,
-                    breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111827),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF374151)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isTimerRunning ? Icons.timer_outlined : Icons.pause_circle_outline,
-                        size: 13,
-                        color: _isTimerRunning ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _formatTime(_elapsedSeconds),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+              if (!narrow) ...[
+                const SizedBox(width: 6),
+                Text(mode,
+                  style: const TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w800,
+                    color: Color(0xFFFACC15),
                   ),
                 ),
-              ),
-            ],
-          ),
-
-          // Indicatore Set Corrente
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              snapshot.isTieBreak
-                  ? (snapshot.isMatchTieBreak ? 'MATCH TIE-BREAK A ${provider.decidingTieBreakPoints}' : 'SET $currentSetNumber: TIE-BREAK')
-                  : 'SET $currentSetNumber IN CORSO',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
-              ),
-            ),
-          ),
-
-          // Guida Telecomando & Tasto Pausa 90s
-          Row(
-            children: [
-              GestureDetector(
-                onTap: () => _startBreakTimer(duration: 90),
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.5)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.hourglass_top, size: 13, color: Color(0xFF00E5FF)),
-                      SizedBox(width: 4),
-                      Text(
-                        'Pausa 90s',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF00E5FF)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111827),
+              ],
+              const SizedBox(width: 10),
+              Tooltip(
+                message: _isTimerRunning ? 'Metti in pausa il cronometro' : 'Riprendi il cronometro',
+                child: InkWell(
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF374151)),
+                  onTap: () {
+                    setState(() => _isTimerRunning = !_isTimerRunning);
+                    provider.updateClock(_elapsedSeconds, _isTimerRunning,
+                      breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(_isTimerRunning ? Icons.timer_outlined : Icons.pause_circle_outline,
+                        size: 18, color: _isTimerRunning ? const Color(0xFF10B981) : const Color(0xFFF59E0B)),
+                      const SizedBox(width: 5),
+                      Text(_formatTime(_elapsedSeconds),
+                        style: const TextStyle(color: Colors.white, fontSize: 13,
+                          fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
                 ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.bluetooth_connected, size: 14, color: Color(0xFF10B981)),
-                    SizedBox(width: 5),
-                    Text(
-                      'Vol+: Sq.1 (x1) | Sq.2 (x2) | Vol-: Undo',
-                      style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF), fontWeight: FontWeight.w600),
-                    ),
-                  ],
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Center(
+                  child: Text(setLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 12,
+                      fontWeight: FontWeight.w800, letterSpacing: .7)),
                 ),
+              ),
+              IconButton(
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Annulla ultimo punto',
+                onPressed: provider.canUndo ? () {
+                  HapticFeedback.mediumImpact();
+                  provider.undo();
+                } : null,
+                icon: Icon(Icons.undo_rounded, size: 22,
+                  color: provider.canUndo ? Colors.white : Colors.white24),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'Altre azioni e impostazioni',
+                icon: const Icon(Icons.more_vert_rounded, size: 24, color: Colors.white),
+                onSelected: (action) => _handleScoreboardAction(action, provider),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'serve', child: Text('Cambia battitore')),
+                  const PopupMenuItem(value: 'sides', child: Text('Cambia campo · Pausa 90s')),
+                  PopupMenuItem(value: 'mute',
+                    child: Text(provider.isMuted ? 'Attiva voce' : 'Disattiva voce')),
+                  const PopupMenuDivider(),
+                  if (provider.isMatchOver)
+                    const PopupMenuItem(value: 'archive', child: Text('Salva risultato e chiudi'))
+                  else
+                    const PopupMenuItem(value: 'interrupt', child: Text('Salva e interrompi')),
+                  const PopupMenuItem(value: 'reset', child: Text('Azzera partita')),
+                  const PopupMenuItem(value: 'setup', child: Text('Torna al setup')),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  /// Colonna Squadra ad alto contrasto per visibilità a 15 metri
+  void _handleScoreboardAction(String action, PadelScoreProvider provider) {
+    switch (action) {
+      case 'serve':
+        provider.toggleServingTeam();
+        return;
+      case 'sides':
+        provider.switchSides();
+        _startBreakTimer(duration: 90);
+        return;
+      case 'mute':
+        provider.toggleMute();
+        return;
+      case 'interrupt':
+        unawaited(_archiveInterruptedMatch(provider));
+        return;
+      case 'archive':
+        unawaited(_archiveFinishedMatch(provider));
+        return;
+      case 'reset':
+        _confirmResetDialog(context, provider);
+        return;
+      case 'setup':
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+        );
+        return;
+    }
+  }
+
+  Future<void> _archiveInterruptedMatch(PadelScoreProvider provider) async {
+    if (_isArchiving || provider.isMatchOver) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Interrompere la partita?'),
+        content: const Text('Potrai riprenderla dallo storico delle partite interrotte.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annulla')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Salva e interrompi')),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => _isArchiving = true);
+    provider.updateClock(_elapsedSeconds, false,
+      breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+    final saved = await provider.interruptAndArchiveMatch();
+    if (!mounted) return;
+    if (saved) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+      );
+    } else {
+      setState(() => _isArchiving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Salvataggio non riuscito: partita ancora recuperabile.'),
+      ));
+    }
+  }
+
+  Future<void> _archiveFinishedMatch(PadelScoreProvider provider) async {
+    if (_isArchiving || !provider.isMatchOver) return;
+    setState(() => _isArchiving = true);
+    provider.updateClock(_elapsedSeconds, false,
+      breakSeconds: _breakSecondsLeft, breakActive: _isBreakActive);
+    final saved = await provider.archiveFinishedMatch();
+    if (!mounted) return;
+    if (saved) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+      );
+    } else {
+      setState(() => _isArchiving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Salvataggio non riuscito. Riprova prima di uscire.'),
+      ));
+    }
+  }
+
+  /// Il punteggio resta il focus: numeri ad altezza adattiva, team e servizio
+  /// compatti, game come dettaglio. Nessun overlay sul numero centrale.
   Widget _buildTeamColumn({
     required BuildContext context,
     required PadelScoreProvider provider,
@@ -600,323 +568,163 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     required Color accentColor,
     required VoidCallback onTap,
   }) {
-    final servingPlayerName = provider.currentServingPlayerName;
-
+    final serveName = provider.currentServingPlayerName;
     return Material(
-      color: Colors.transparent,
+      color: const Color(0xFF101D3A),
       child: InkWell(
         onTap: onTap,
-        splashColor: accentColor.withValues(alpha: 0.15),
-        highlightColor: accentColor.withValues(alpha: 0.08),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // 1. INTESTAZIONE: Nome Squadra + Nomi Coppia
-              Column(
+        splashColor: accentColor.withValues(alpha: 0.16),
+        highlightColor: accentColor.withValues(alpha: 0.07),
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final compact = box.maxHeight < 235;
+            final horizontal = box.maxWidth < 340 ? 10.0 : 22.0;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(horizontal, compact ? 6 : 10, horizontal, 5),
+              child: Column(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          teamName.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                  // Squadra e coppia sono visibili ma non rubano spazio ai punti.
+                  Text(
+                    teamName.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: accentColor,
+                      fontWeight: FontWeight.w900,
+                      fontSize: compact ? 14 : 19,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                  Text(
+                    '$player1  ·  $player2',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: compact ? 10 : 11,
+                      color: const Color(0xFFACBCD0),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: compact ? 2 : 4),
+                  // Nessun badge luminoso ingombrante: solo un marcatore sobrio.
+                  SizedBox(
+                    height: compact ? 14 : 18,
+                    child: isServing
+                        ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.circle, size: 6, color: accentColor),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  'SERVE $serveName',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Color(0xFFE5ECF5),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  // FittedBox usa tutto lo spazio disponibile, inclusi schermi
+                  // piccoli: evita tagli per punteggi lunghi e tie-break.
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, scoreBox) {
+                        return Center(
+                          child: SizedBox(
+                            width: scoreBox.maxWidth,
+                            height: scoreBox.maxHeight,
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              child: Text(
+                                scoreText,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: scoreText == 'AV'
+                                      ? const Color(0xFFFFD26B)
+                                      : const Color(0xFFF7F9FF),
+                                  fontSize: 300,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -10,
+                                  height: 0.94,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  SizedBox(height: compact ? 24 : 29,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          isTieBreak ? 'TIE-BREAK' : 'GAME',
+                          style: const TextStyle(
+                            color: Color(0xFFAEBBD0),
+                            fontSize: 11,
+                            letterSpacing: 1.7,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 9),
+                        Text(
+                          '$gamesWon',
                           style: TextStyle(
                             color: accentColor,
-                            fontSize: 24,
+                            fontSize: compact ? 19 : 23,
                             fontWeight: FontWeight.w900,
-                            letterSpacing: 1.5,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$player1 & $player2',
-                    style: const TextStyle(
-                      color: Color(0xFF94A3B8),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      ],
                     ),
                   ),
-
-                  const SizedBox(height: 6),
-
-                  // 2. INDICATORE SERVIZIO ULTRA CHIARO: "IN BATTUTA: [NOME GIOCATORE]"
-                  if (isServing)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFCCFF00),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFCCFF00).withValues(alpha: 0.6),
-                            blurRadius: 18,
-                            spreadRadius: 2,
-                          )
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.sports_tennis, size: 16, color: Colors.black),
-                          const SizedBox(width: 6),
-                          Text(
-                            'IN BATTUTA: ${servingPlayerName.toUpperCase()}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.black,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    // Placeholder invisibile per mantenere la perfetta centratura verticale
-                    const SizedBox(height: 27),
                 ],
               ),
-
-              // 3. PUNTEGGIO GAME GIGANTE AL CENTRO (Visibile a 15 metri sotto il sole)
-              Expanded(
-                child: Center(
-                  child: FittedBox(
-                    fit: BoxFit.contain,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Text(
-                        scoreText,
-                        style: TextStyle(
-                          fontSize: 160,
-                          fontWeight: FontWeight.w900,
-                          color: scoreText == 'AV'
-                              ? const Color(0xFFF59E0B)
-                              : Colors.white,
-                          height: 0.9,
-                          shadows: [
-                            Shadow(
-                              color: accentColor.withValues(alpha: 0.35),
-                              blurRadius: 24,
-                              offset: const Offset(0, 0),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // 4. Riquadro Game Vinti nel Set Corrente
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF1E293B)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'GAME NEL SET: ',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF94A3B8),
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    Text(
-                      '$gamesWon',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        color: accentColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
   }
 
-  /// Barra inferiore con il riepilogo di tutti i Set giocati
-  Widget _buildSetsHistoryBar(
-    PadelScoreProvider provider,
-    PadelMatchSnapshot snapshot,
-  ) {
+  /// Risultati sintetici scorrevoli: non interferiscono con i punti.
+  Widget _buildSetsHistoryBar(PadelScoreProvider provider, PadelMatchSnapshot snapshot) {
     final sets = snapshot.completedSets;
-
     return Container(
+      height: 32,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: const Color(0xFF0B132B),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.scoreboard_outlined, size: 16, color: Color(0xFF94A3B8)),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          const SizedBox(width: 12),
+          const Icon(Icons.scoreboard_outlined, size: 15, color: Color(0xFF94A3B8)),
           const SizedBox(width: 8),
-          const Text(
-            'RISULTATO SET: ',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF94A3B8),
-              letterSpacing: 1.2,
-            ),
+          ...sets.asMap().entries.map((entry) => Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: Text('SET ${entry.key + 1}: ${entry.value}',
+              style: const TextStyle(color: Color(0xFFCBD5E1),
+                fontSize: 12, fontWeight: FontWeight.w700)),
+          )),
+          Text(
+            provider.isMatchOver
+                ? 'PARTITA CONCLUSA'
+                : 'SET ${sets.length + 1}: ${snapshot.currentGamesA}–${snapshot.currentGamesB}',
+            style: const TextStyle(color: Color(0xFFCCFF00),
+              fontSize: 13, fontWeight: FontWeight.w800),
           ),
-          const SizedBox(width: 8),
-
-          if (sets.isEmpty)
-            const Text(
-              'Primo set in corso',
-              style: TextStyle(color: Color(0xFF64748B), fontSize: 13, fontStyle: FontStyle.italic),
-            )
-          else
-            ...sets.asMap().entries.map((entry) {
-              final index = entry.key;
-              final set = entry.value;
-              return Container(
-                margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: set.winner == Team.teamA
-                        ? const Color(0xFFCCFF00).withValues(alpha: 0.5)
-                        : const Color(0xFF00E5FF).withValues(alpha: 0.5),
-                  ),
-                ),
-                child: Text(
-                  'Set ${index + 1}: ${set.toString()}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              );
-            }),
-
-          // Set corrente
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: const Color(0x33CCFF00),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFFCCFF00)),
-            ),
-            child: Text(
-              'Set ${sets.length + 1} (in corso): ${snapshot.currentGamesA} - ${snapshot.currentGamesB}',
-              style: const TextStyle(
-                color: Color(0xFFCCFF00),
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Toolbar fluttuante rapida
-  Widget _buildTopFloatingControls(BuildContext context, PadelScoreProvider provider) {
-    return Positioned(
-      bottom: 50,
-      right: 16,
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: const Color(0xDD0F172A),
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: const Color(0xFF334155)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.5),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // UNDO
-            IconButton(
-              tooltip: 'Annulla ultimo punto (Undo)',
-              icon: Icon(
-                Icons.undo_rounded,
-                color: provider.canUndo ? Colors.white : Colors.white24,
-                size: 24,
-              ),
-              onPressed: provider.canUndo ? () {
-                HapticFeedback.mediumImpact();
-                provider.undo();
-              } : null,
-            ),
-
-            // Scambia Battitore
-            IconButton(
-              tooltip: 'Avanza rotazione battitore',
-              icon: const Icon(Icons.sports_tennis, color: Color(0xFFCCFF00), size: 22),
-              onPressed: () => provider.toggleServingTeam(),
-            ),
-
-            // Scambia Campo
-            IconButton(
-              tooltip: 'Scambia campo (e avvia pausa 90s)',
-              icon: const Icon(Icons.swap_horiz, color: Colors.white70, size: 24),
-              onPressed: () {
-                provider.switchSides();
-                _startBreakTimer(duration: 90);
-              },
-            ),
-
-            // Mute TTS
-            IconButton(
-              tooltip: provider.isMuted ? 'Attiva voce TTS' : 'Disattiva voce TTS',
-              icon: Icon(
-                provider.isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                color: provider.isMuted ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                size: 24,
-              ),
-              onPressed: () => provider.toggleMute(),
-            ),
-
-            // Reset
-            IconButton(
-              tooltip: 'Nuova partita (Reset)',
-              icon: const Icon(Icons.refresh_rounded, color: Color(0xFFEF4444), size: 24),
-              onPressed: () => _confirmResetDialog(context, provider),
-            ),
-
-            // Modifica Setup
-            IconButton(
-              tooltip: 'Modifica Nomi e Setup',
-              icon: const Icon(Icons.tune, color: Colors.white, size: 22),
-              onPressed: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-                );
-              },
-            ),
-          ],
-        ),
+          const SizedBox(width: 12),
+        ]),
       ),
     );
   }
@@ -969,52 +777,46 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     );
   }
 
-  /// Banner animato per eventi salienti
+  /// Avvisi brevi sopra il punteggio; niente cartelloni con ombre.
   Widget _buildMatchStatusBanner(PadelScoreProvider provider, PadelMatchSnapshot snapshot) {
-    String message = '';
-    Color bannerColor = const Color(0xFFF59E0B);
-
+    String message;
+    Color tint;
     if (provider.isMatchOver) {
-      final winner = snapshot.matchWinner!;
-      message = '🏆 VITTORIA MATCH: ${provider.getTeamName(winner).toUpperCase()}! 🏆';
-      bannerColor = const Color(0xFF10B981);
+      message = 'PARTITA CONCLUSA · ${provider.getTeamName(snapshot.matchWinner!)}';
+      tint = const Color(0xFF33D6A0);
     } else if (snapshot.isTieBreak) {
       message = snapshot.isMatchTieBreak
-          ? '⚡ MATCH TIE-BREAK DECISIVO A ${provider.decidingTieBreakPoints} PUNTI ⚡'
-          : '⚡ TIE-BREAK A 7 PUNTI ⚡';
-      bannerColor = const Color(0xFF8B5CF6);
-    } else if (snapshot.isGoldenPointSituation(provider.isGoldenPoint, provider.advantagesBeforeGoldenPoint)) {
+          ? 'MATCH TIE-BREAK · ${provider.decidingTieBreakPoints} PUNTI'
+          : 'TIE-BREAK';
+      tint = const Color(0xFFE5B9FF);
+    } else {
       message = provider.advantagesBeforeGoldenPoint == 2
-          ? '🔥 40 PARI: STAR POINT DECISIVO! 🔥'
-          : '🔥 40 PARI: PUNTO D\'ORO DECISIVO! 🔥';
-      bannerColor = const Color(0xFFEF4444);
+          ? 'STAR POINT DECISIVO'
+          : 'PUNTO D’ORO DECISIVO';
+      tint = const Color(0xFFFFD65A);
     }
-
     return Positioned(
-      top: 50,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          decoration: BoxDecoration(
-            color: bannerColor.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: bannerColor.withValues(alpha: 0.6),
-                blurRadius: 16,
-                spreadRadius: 2,
-              )
-            ],
-          ),
-          child: Text(
-            message,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.2,
+      top: 47,
+      left: 8,
+      right: 8,
+      child: IgnorePointer(
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 340),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF101A30).withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tint.withValues(alpha: 0.65)),
+            ),
+            child: Text(
+              message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tint, fontSize: 10, fontWeight: FontWeight.w800,
+                letterSpacing: 0.45,
+              ),
             ),
           ),
         ),

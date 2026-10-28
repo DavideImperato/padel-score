@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_content_safe_area.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
@@ -7,6 +8,7 @@ import 'match_history_screen.dart';
 import 'match_statistics_screen.dart';
 import 'player_directory_screen.dart';
 import '../services/player_directory.dart';
+import '../widgets/watch_link_card.dart';
 
 class MatchSetupScreen extends StatefulWidget {
   const MatchSetupScreen({super.key});
@@ -17,6 +19,24 @@ class MatchSetupScreen extends StatefulWidget {
 
 class _MatchSetupScreenState extends State<MatchSetupScreen> {
   final _formKey = GlobalKey<FormState>();
+  late PadelScoreProvider _provider;
+  int _watchStartSeen = 0;
+  bool _watchNavigationScheduled = false;
+
+  void _onProviderChanged() {
+    if (!mounted || _watchNavigationScheduled) return;
+    if (_provider.watchStartSequence != _watchStartSeen) {
+      _watchStartSeen = _provider.watchStartSequence;
+      _watchNavigationScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LandscapeScoreboardScreen()),
+        );
+      });
+    }
+  }
+
 
   late TextEditingController _team1Controller;
   late TextEditingController _team2Controller;
@@ -39,6 +59,9 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   void initState() {
     super.initState();
     final provider = context.read<PadelScoreProvider>();
+    _provider = provider;
+    _watchStartSeen = provider.watchStartSequence;
+    provider.addListener(_onProviderChanged);
     _team1Controller = TextEditingController(text: provider.teamAName);
     _team2Controller = TextEditingController(text: provider.teamBName);
     _player1Controller = TextEditingController(text: provider.player1Name);
@@ -117,6 +140,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
 
   @override
   void dispose() {
+    _provider.removeListener(_onProviderChanged);
     _team1Controller.dispose();
     _team2Controller.dispose();
     _player1Controller.dispose();
@@ -173,10 +197,11 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     if (recovery.hasSavedMatch) {
       return Scaffold(
         backgroundColor: const Color(0xFF070B14),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 540),
-            child: Padding(
+        body: AppContentSafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 540),
+              child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -208,7 +233,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             ),
           ),
         ),
-      );
+      ),
+    );
     }
     return Scaffold(
       backgroundColor: const Color(0xFF070B14),
@@ -240,7 +266,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
           ],
         ),
       ),
-      body: SafeArea(
+      body: AppContentSafeArea(
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -274,6 +300,8 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                       icon: const Icon(Icons.bar_chart, color: Color(0xFF4ADE80)),
                       label: const Text('STATISTICHE', style: TextStyle(color: Colors.white)),
                     ),
+                    const SizedBox(height: 12),
+                    const WatchLinkCard(),
                     const SizedBox(height: 18),
                     // Sezione 1: Coppie e Giocatori (2 Card affiancate o stacked)
                     Row(

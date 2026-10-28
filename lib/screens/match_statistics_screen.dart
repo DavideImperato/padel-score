@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_content_safe_area.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/match_history.dart';
 import '../services/player_directory.dart';
@@ -66,7 +67,8 @@ class _MatchStatisticsScreenState extends State<MatchStatisticsScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: const Color(0xFF070B14),
     appBar: AppBar(title: const Text('STATISTICHE'), backgroundColor: const Color(0xFF0F172A)),
-    body: FutureBuilder<Map<String, dynamic>?>(
+    body: AppContentSafeArea(
+      child: FutureBuilder<Map<String, dynamic>?>(
       future: _statistics,
       builder: (context, snap) {
         if (!snap.hasData && snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
@@ -93,6 +95,7 @@ class _MatchStatisticsScreenState extends State<MatchStatisticsScreen> {
             style: TextStyle(color: Colors.white54, fontSize: 12)),
         ]);
       },
+      ),
     ),
   );
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_content_safe_area.dart';
 import '../services/player_directory.dart';
 
 class PlayerDirectoryScreen extends StatefulWidget {
@@ -52,7 +53,7 @@ class _PlayerDirectoryScreenState extends State<PlayerDirectoryScreen> {
     final validIds = players.map((p) => p['id']).toSet();
     if (!validIds.contains(_first)) _first = null;
     if (!validIds.contains(_second)) _second = null;
-    return Scaffold(appBar: AppBar(title: const Text('Giocatori e coppie')), body: !_loaded
+    return Scaffold(appBar: AppBar(title: const Text('Giocatori e coppie')), body: AppContentSafeArea(child: !_loaded
       ? const Center(child: CircularProgressIndicator())
       : _data == null ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Archivio non leggibile. Non verrà sovrascritto.')))
       : ListView(padding: const EdgeInsets.all(18), children: [
@@ -74,6 +75,6 @@ class _PlayerDirectoryScreenState extends State<PlayerDirectoryScreen> {
             Expanded(child: DropdownButton<String>(isExpanded: true, value: _second, hint: const Text('Secondo giocatore'), items: players.map<DropdownMenuItem<String>>((p) => DropdownMenuItem(value: p['id'] as String, child: Text(p['name'] as String))).toList(), onChanged: (value) => setState(() => _second = value))) ]),
           ElevatedButton(onPressed: () async { await _run(() => PlayerDirectoryStore.addPair(_pairName.text, _first ?? '', _second ?? '')); if (_error == null) { _pairName.clear(); setState(() { _first = null; _second = null; }); } }, child: const Text('Salva coppia')),
           ...pairs.map((p) => ListTile(title: Text(p['name'] as String), subtitle: Text((p['playerIds'] as List).map((id) => players.firstWhere((player) => player['id'] == id)['name']).join(' + ')), trailing: IconButton(tooltip: 'Elimina coppia', onPressed: () async { if (await _confirm(p['name'] as String)) await _run(() => PlayerDirectoryStore.removePair(p['id'] as String)); }, icon: const Icon(Icons.delete_outline)))),
-        ]));
+        ])));
   }
 }
