@@ -85,6 +85,35 @@ class PadelScoreProvider extends ChangeNotifier {
       super.notifyListeners();
       return {'ok': true, 'code': 'started'};
     }
+    if (action == 'share_result') {
+      if (!_activeCheckpoint || _currentSnapshot.matchWinner == null) {
+        return {'ok': false, 'code': 'not_finished'};
+      }
+      _watchShareSequence++;
+      notifyListeners();
+      return {'ok': true, 'code': 'share_requested'};
+    }
+    if (action == 'new_match') {
+      if (!_activeCheckpoint || _currentSnapshot.matchWinner == null) {
+        return {'ok': false, 'code': 'not_finished'};
+      }
+      final saved = await archiveFinishedMatch();
+      if (!saved) return {'ok': false, 'code': 'save_failed'};
+      // Una partita nuova usa i nomi e le regole confermati sul telefono.
+      // Non riassegnare punti e non ripetere il comando in caso di timeout.
+      setupMatch(team1: _teamAName, team2: _teamBName,
+        player1: _player1Name, player2: _player2Name,
+        player3: _player3Name, player4: _player4Name,
+        firstServerPlayerId: _firstServerPlayerId,
+        goldenPoint: _isGoldenPoint,
+        advantagesBeforeGoldenPoint: _advantagesBeforeGoldenPoint,
+        bestOfSets: _bestOfSets, shortSets: _shortSets,
+        decidingMatchTieBreak: _decidingMatchTieBreak,
+        decidingTieBreakPoints: _decidingTieBreakPoints, playerIds: _playerIds);
+      _watchStartSequence++;
+      notifyListeners();
+      return {'ok': true, 'code': 'new_match_started'};
+    }
     if (!_activeCheckpoint) return {'ok': false, 'code': 'no_active_match'};
     if (action == 'end_match') {
       final saved = _currentSnapshot.matchWinner == null
@@ -428,6 +457,15 @@ class PadelScoreProvider extends ChangeNotifier {
   int get decidingTieBreakPoints => _decidingTieBreakPoints;
   bool get canUndo => _history.isNotEmpty;
   bool get isMuted => _ttsService.isMuted;
+  /// I nomi dei giocatori e i risultati sono condivisi solo se richiesto.
+  int _watchShareSequence = 0;
+  int get watchShareSequence => _watchShareSequence;
+
+  static String _setCountSpoken(int count) {
+    const words = ['zero', 'uno', 'due', 'tre', 'quattro', 'cinque'];
+    return count >= 0 && count < words.length ? words[count] : count.toString();
+  }
+
   bool get isMatchOver => _currentSnapshot.matchWinner != null;
   bool get isSidesSwapped => _isSidesSwapped;
 
@@ -574,7 +612,9 @@ class PadelScoreProvider extends ChangeNotifier {
   // ===========================================================================
 
   void addPoint(Team scoringTeam) {
-    if (isMatchOver) return;
+    // Watch, touchscreen e Bluetooth passano da qui: durante la chiusura
+    // asincrona nessuna sorgente deve cambiare il risultato archiviato.
+    if (!_activeCheckpoint || _finalizingMatch || isMatchOver) return;
     _configurationVersion++;
 
     _history.add(_currentSnapshot);
@@ -843,7 +883,7 @@ class PadelScoreProvider extends ChangeNotifier {
     final String setOrdinal = setNumber == 1 ? 'primo' : (setNumber == 2 ? 'secondo' : (setNumber == 3 ? 'terzo' : (setNumber == 4 ? 'quarto' : 'quinto')));
     if (matchWinner != null) {
       _ttsService.speak(
-        'Game, set e partita per la squadra ${getTeamName(matchWinner)}! Risultato finale: $setsWonA set a $setsWonB.',
+        'Game, partita vinta da ${getTeamName(matchWinner)}! Risultato finale. Parziali vinti: ${_setCountSpoken(setsWonA)} a ${_setCountSpoken(setsWonB)}.',
       );
     } else if (startDecidingTieBreak) {
       _ttsService.speak('Set per ${getTeamName(setWinner)}. Inizia il match tie-break decisivo a dieci punti. Serve $currentServingPlayerName.');
@@ -918,7 +958,7 @@ class PadelScoreProvider extends ChangeNotifier {
   }
 
   void undo() {
-    if (_finalizingMatch) return;
+    if (!_activeCheckpoint || _finalizingMatch) return;
     if (_history.isEmpty) return;
     _currentSnapshot = _history.removeLast();
     notifyListeners();
@@ -926,6 +966,7 @@ class PadelScoreProvider extends ChangeNotifier {
   }
 
   void resetMatch() {
+    if (!_activeCheckpoint || _finalizingMatch) return;
     _history.clear();
     _isSidesSwapped = false;
     _elapsedSeconds = 0;
@@ -942,6 +983,7 @@ class PadelScoreProvider extends ChangeNotifier {
   }
 
   void toggleServingTeam() {
+    if (!_activeCheckpoint || _finalizingMatch || isMatchOver) return;
     _history.add(_currentSnapshot);
     final nextRot = _currentSnapshot.servingRotationIndex + 1;
     final rotation = getRotationOrder(_firstServerPlayerId);
@@ -958,6 +1000,7 @@ class PadelScoreProvider extends ChangeNotifier {
   /// Inverte esclusivamente la visualizzazione dei lati del tabellone.
   /// Non altera in alcun modo punteggio, game, set, battitore o storico sportivo.
   void switchSides() {
+    if (!_activeCheckpoint || _finalizingMatch) return;
     _isSidesSwapped = !_isSidesSwapped;
     notifyListeners();
     _ttsService.speak('Cambio campo.');
@@ -979,6 +1022,8 @@ class PadelScoreProvider extends ChangeNotifier {
 
   void toggleMute() {
     _ttsService.setMuted(!_ttsService.isMuted);
+    SharedPreferences.getInstance().then((prefs) =>
+      prefs.setBool('padel_voice_enabled_v1', !_ttsService.isMuted));
     notifyListeners();
   }
 }

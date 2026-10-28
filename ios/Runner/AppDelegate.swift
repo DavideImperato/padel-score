@@ -199,11 +199,16 @@ private final class WatchLinkBridge: NSObject, WCSessionDelegate, FlutterStreamH
       // Flutter e` l'unico proprietario del motore; mai attribuire punti in Swift.
       DispatchQueue.main.async { [weak self] in
         guard let channel = self?.methodChannel else {
-          replyHandler(["type": "watch_command_ack", "ok": false, "code": "flutter_unavailable"])
+          replyHandler(["type": "watch_command_ack",
+                        "commandId": message["commandId"] as? String ?? "",
+                        "ok": false, "code": "flutter_unavailable"])
           return
         }
         channel.invokeMethod("watchCommand", arguments: message, result: { result in
-          var response: [String: Any] = ["type": "watch_command_ack"]
+          // Anche gli errori nativi riportano l'ID del comando: il Watch
+          // distingue un rifiuto certo da una risposta di altro comando.
+          var response: [String: Any] = ["type": "watch_command_ack",
+                                          "commandId": message["commandId"] as? String ?? ""]
           if let outcome = result as? [String: Any] {
             response.merge(outcome) { _, new in new }
           } else if let error = result as? FlutterError {

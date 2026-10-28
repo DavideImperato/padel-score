@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import '../widgets/app_content_safe_area.dart';
+import '../services/app_orientation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/match_history.dart';
 import '../services/match_interrupted.dart';
 import '../services/match_history_advanced.dart';
+import '../widgets/match_result_share_sheet.dart';
+import 'match_result_statistics_screen.dart';
 import '../services/player_directory.dart';
 import '../providers/padel_score_provider.dart';
 import 'landscape_scoreboard_screen.dart';
@@ -187,6 +190,8 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
     final ok = await context.read<PadelScoreProvider>().resumeInterruptedMatch(item['id'] as String);
     if (!mounted) return;
     if (ok) {
+      await AppOrientation.match();
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LandscapeScoreboardScreen()));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Non è stato possibile riprendere la partita.')));
@@ -295,6 +300,13 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
                     Text('${item['teamAName']}: ${players[0]} / ${players[1]}', style: const TextStyle(color: Colors.white70)),
                     Text('${item['teamBName']}: ${players[2]} / ${players[3]}', style: const TextStyle(color: Colors.white70)),
                     Text('Al meglio di ${item['bestOfSets']} set · ${item['gamesPerSet']} game', style: const TextStyle(color: Colors.white54)),
+                    TextButton.icon(onPressed: () => MatchResultShareSheet.show(context, item),
+                      icon: const Icon(Icons.share_outlined, color: Color(0xFFCCFF00)),
+                      label: const Text('Condividi risultato')),
+                    TextButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => MatchResultStatisticsScreen(record: item))),
+                      icon: const Icon(Icons.bar_chart, color: Color(0xFFCCFF00)),
+                      label: const Text('Analisi della partita')),
                     TextButton.icon(onPressed: () => _delete(item), icon: const Icon(Icons.delete_outline, color: Colors.redAccent), label: const Text('Elimina dallo storico')),
                   ],
                 ),

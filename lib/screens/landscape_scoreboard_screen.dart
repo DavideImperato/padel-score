@@ -6,6 +6,10 @@ import '../models/padel_match_state.dart';
 import '../providers/padel_score_provider.dart';
 import '../services/bluetooth_key_service.dart';
 import 'match_setup_screen.dart';
+import 'match_result_statistics_screen.dart';
+import '../services/app_orientation.dart';
+import '../services/match_history.dart';
+import '../widgets/match_result_share_sheet.dart';
 
 class LandscapeScoreboardScreen extends StatefulWidget {
   const LandscapeScoreboardScreen({super.key});
@@ -20,6 +24,10 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
   // Cronometro durata del match
   bool _isArchiving = false;
   late PadelScoreProvider _provider;
+  BuildContext? _winnerDialogContext;
+  bool _winnerPopupShown = false;
+  String? _winnerPopupMatchId;
+  int _watchShareSeen = 0;
   int _watchEndSeen = 0;
   bool _watchExitScheduled = false;
 
@@ -29,11 +37,27 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     if (_isTimerRunning != _provider.isTimerRunning) {
       setState(() => _isTimerRunning = _provider.isTimerRunning);
     }
+    if (_provider.watchShareSequence != _watchShareSeen) {
+      _watchShareSeen = _provider.watchShareSequence;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _provider.isMatchOver) unawaited(_shareFinishedMatch(_provider));
+      });
+    }
+    if (!_provider.isMatchOver && _winnerDialogContext != null) {
+      final popup = _winnerDialogContext;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (popup != null && popup.mounted && ModalRoute.of(popup)?.isCurrent == true) {
+          Navigator.of(popup).pop();
+        }
+      });
+    }
+    _scheduleWinnerPopupIfNeeded();
     if (_provider.watchEndSequence != _watchEndSeen && !_watchExitScheduled) {
       _watchEndSeen = _provider.watchEndSequence;
       _watchExitScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        Navigator.of(context).popUntil((route) => route is PageRoute);
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
         );
@@ -66,7 +90,10 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     final provider = context.read<PadelScoreProvider>();
     _provider = provider;
     _watchEndSeen = provider.watchEndSequence;
+    _watchShareSeen = provider.watchShareSequence;
     provider.addListener(_onProviderChanged);
+    // Anche un match terminato e ripristinato mostra le azioni principali.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleWinnerPopupIfNeeded());
     _elapsedSeconds = provider.elapsedSeconds;
     _isTimerRunning = provider.isTimerRunning;
     _breakSecondsLeft = provider.breakSecondsLeft;
@@ -197,12 +224,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     _feedbackDismissTimer?.cancel();
     _keyService.dispose();
     _provider.removeListener(_onProviderChanged);
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // Il ritorno al verticale è gestito dalla Home: il setup resta landscape.
     super.dispose();
   }
 
@@ -457,6 +479,12 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                     child: Text(provider.isMuted ? 'Attiva voce' : 'Disattiva voce')),
                   const PopupMenuDivider(),
                   if (provider.isMatchOver)
+                    const PopupMenuItem(value: 'result', child: Text('Riepilogo finale')),
+                  if (provider.isMatchOver)
+                    const PopupMenuItem(value: 'stats', child: Text('Analisi della partita')),
+                  if (provider.isMatchOver)
+                    const PopupMenuItem(value: 'share', child: Text('Condividi risultato')),
+                  if (provider.isMatchOver)
                     const PopupMenuItem(value: 'archive', child: Text('Salva risultato e chiudi'))
                   else
                     const PopupMenuItem(value: 'interrupt', child: Text('Salva e interrompi')),
@@ -485,6 +513,15 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         return;
       case 'interrupt':
         unawaited(_archiveInterruptedMatch(provider));
+        return;
+      case 'result':
+        unawaited(_showWinnerPopup(provider));
+        return;
+      case 'stats':
+        unawaited(_openFinishedStatistics(provider));
+        return;
+      case 'share':
+        unawaited(_shareFinishedMatch(provider));
         return;
       case 'archive':
         unawaited(_archiveFinishedMatch(provider));
@@ -531,6 +568,123 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         content: Text('Salvataggio non riuscito: partita ancora recuperabile.'),
       ));
     }
+  }
+
+  Future<void> _shareFinishedMatch(PadelScoreProvider provider) async {
+    if (_isArchiving || !provider.isMatchOver) return;
+    final record = MatchHistoryStore.buildRecord(
+      id: provider.watchMatchId,
+      snapshot: provider.snapshot,
+      durationSeconds: _elapsedSeconds,
+      teamAName: provider.teamAName,
+      teamBName: provider.teamBName,
+      players: [provider.player1Name, provider.player2Name,
+        provider.player3Name, provider.player4Name],
+      playerIds: provider.playerIds,
+      bestOfSets: provider.bestOfSets,
+      gamesPerSet: provider.shortSets ? 4 : 6,
+      completedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    if (!mounted) return;
+    await MatchResultShareSheet.show(context, record);
+  }
+
+  void _scheduleWinnerPopupIfNeeded() {
+    if (!mounted || _watchExitScheduled || _isArchiving) return;
+    final p = _provider;
+    if (!p.isMatchOver) {
+      _winnerPopupShown = false;
+      _winnerPopupMatchId = null;
+      return;
+    }
+    if (_winnerPopupShown && _winnerPopupMatchId == p.watchMatchId) return;
+    _winnerPopupShown = true;
+    _winnerPopupMatchId = p.watchMatchId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && p.isMatchOver && !_isArchiving) unawaited(_showWinnerPopup(p));
+    });
+  }
+
+  Map<String, dynamic> _finishedRecord(PadelScoreProvider provider) =>
+      MatchHistoryStore.buildRecord(
+        id: provider.watchMatchId, snapshot: provider.snapshot,
+        durationSeconds: _elapsedSeconds,
+        teamAName: provider.teamAName, teamBName: provider.teamBName,
+        players: [provider.player1Name, provider.player2Name,
+          provider.player3Name, provider.player4Name],
+        playerIds: provider.playerIds,
+        bestOfSets: provider.bestOfSets,
+        gamesPerSet: provider.shortSets ? 4 : 6,
+        completedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+
+  Future<void> _openFinishedStatistics(PadelScoreProvider provider) async {
+    if (!mounted || !provider.isMatchOver) return;
+    final data = _finishedRecord(provider);
+    await AppOrientation.home();
+    if (!mounted) return;
+    try {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => MatchResultStatisticsScreen(record: data),
+      ));
+    } finally {
+      if (mounted) await AppOrientation.match();
+    }
+  }
+
+  Future<void> _showWinnerPopup(PadelScoreProvider provider) async {
+    if (!mounted || !provider.isMatchOver) return;
+    final winner = provider.snapshot.matchWinner!;
+    final winName = provider.getTeamName(winner);
+    final winSets = provider.snapshot.completedSets.where((s) => s.winner == winner).length;
+    final loseSets = provider.snapshot.completedSets.length - winSets;
+    await showDialog<void>(context: context, barrierDismissible: true,
+      builder: (dialogContext) {
+        _winnerDialogContext = dialogContext;
+        return Dialog(
+        backgroundColor: const Color(0xFF142341),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620),
+          child: SingleChildScrollView(padding: const EdgeInsets.all(16), child: Column(
+            mainAxisSize: MainAxisSize.min, children: [
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                IconButton(tooltip: 'Chiudi riepilogo', onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.close, color: Colors.white70, size: 18)),
+              ]),
+              const Icon(Icons.emoji_events_rounded, color: Color(0xFFCCFF00), size: 30),
+              Text('VINCONO $winName', textAlign: TextAlign.center, maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFFCCFF00), fontSize: 20, fontWeight: FontWeight.w900)),
+              Text('$winSets – $loseSets', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text('Prima del salvataggio puoi ancora correggere con Undo.',
+                textAlign: TextAlign.center, style: TextStyle(color: Colors.white60, fontSize: 11)),
+              const SizedBox(height: 13),
+              Row(children: [
+                Expanded(child: FilledButton.tonal(
+                  onPressed: () => unawaited(_shareFinishedMatch(provider)),
+                  child: const Text('Condividi', maxLines: 1, overflow: TextOverflow.ellipsis))),
+                const SizedBox(width: 7),
+                Expanded(child: FilledButton.tonal(
+                  onPressed: () async {
+                    Navigator.pop(dialogContext);
+                    await _openFinishedStatistics(provider);
+                  }, child: const Text('Statistiche', maxLines: 1, overflow: TextOverflow.ellipsis))),
+                const SizedBox(width: 7),
+                Expanded(child: FilledButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    unawaited(_archiveFinishedMatch(provider));
+                  }, child: const Text('+ Nuovo incontro', maxLines: 2, textAlign: TextAlign.center))),
+              ]),
+            ],
+          )),
+        ),
+      );
+      },
+    );
+    _winnerDialogContext = null;
   }
 
   Future<void> _archiveFinishedMatch(PadelScoreProvider provider) async {

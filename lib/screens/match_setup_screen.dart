@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import '../widgets/app_content_safe_area.dart';
+import '../services/app_orientation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
 import 'landscape_scoreboard_screen.dart';
-import 'match_history_screen.dart';
-import 'match_statistics_screen.dart';
-import 'player_directory_screen.dart';
 import '../services/player_directory.dart';
-import '../widgets/watch_link_card.dart';
 
 class MatchSetupScreen extends StatefulWidget {
   const MatchSetupScreen({super.key});
@@ -28,7 +25,9 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     if (_provider.watchStartSequence != _watchStartSeen) {
       _watchStartSeen = _provider.watchStartSequence;
       _watchNavigationScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await AppOrientation.match();
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LandscapeScoreboardScreen()),
@@ -58,6 +57,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
   @override
   void initState() {
     super.initState();
+    AppOrientation.setup();
     final provider = context.read<PadelScoreProvider>();
     _provider = provider;
     _watchStartSeen = provider.watchStartSequence;
@@ -150,7 +150,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
     super.dispose();
   }
 
-  void _startMatch() {
+  Future<void> _startMatch() async {
     if (!_formKey.currentState!.validate()) return;
 
     final registered = (_directory?['players'] as List? ?? []);
@@ -183,7 +183,9 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
       playerIds: validIds,
     );
 
-    // Naviga al tabellone orizzontale
+    // Solo il tabellone passa in orizzontale, non il setup.
+    await AppOrientation.match();
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => const LandscapeScoreboardScreen(),
@@ -214,8 +216,10 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
                     style: TextStyle(color: Colors.white70, fontSize: 16)),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: () {
+                    onPressed: () async {
                       if (recovery.resumeSavedMatch()) {
+                        await AppOrientation.match();
+                        if (!mounted) return;
                         Navigator.of(context).pushReplacement(MaterialPageRoute(
                           builder: (_) => const LandscapeScoreboardScreen(),
                         ));
@@ -242,29 +246,9 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
         backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
         centerTitle: true,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFCCFF00),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.sports_tennis, color: Colors.black, size: 20),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'PADEL SCOREBOT — SETUP PARTITA',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.2,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
+        title: const Text('Configura partita',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800,
+            fontSize: 20)),
       ),
       body: AppContentSafeArea(
         child: Form(
@@ -273,70 +257,34 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 820),
+                constraints: const BoxConstraints(maxWidth: 620),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerDirectoryScreen()));
-                        await _loadDirectory();
-                      },
-                      icon: const Icon(Icons.people, color: Color(0xFF00E5FF)),
-                      label: const Text('GIOCATORI E COPPIE', style: TextStyle(color: Colors.white)),
+                    const SizedBox(height: 4),
+                    // Squadre in colonna: setup progettato per orientamento verticale.
+                    _buildTeamCard(
+                      teamNumber: 1,
+                      accentColor: const Color(0xFFCCFF00),
+                      teamController: _team1Controller,
+                      playerAController: _player1Controller,
+                      playerBController: _player2Controller,
+                      playerALabel: 'Giocatore 1',
+                      playerBLabel: 'Giocatore 2',
+                      playerAId: 1,
+                      playerBId: 2,
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const MatchHistoryScreen()),
-                      ),
-                      icon: const Icon(Icons.history, color: Color(0xFFCCFF00)),
-                      label: const Text('STORICO PARTITE', style: TextStyle(color: Colors.white)),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const MatchStatisticsScreen()),
-                      ),
-                      icon: const Icon(Icons.bar_chart, color: Color(0xFF4ADE80)),
-                      label: const Text('STATISTICHE', style: TextStyle(color: Colors.white)),
-                    ),
-                    const SizedBox(height: 12),
-                    const WatchLinkCard(),
-                    const SizedBox(height: 18),
-                    // Sezione 1: Coppie e Giocatori (2 Card affiancate o stacked)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // SQUADRA 1 (Sinistra - Verde Fluo)
-                        Expanded(
-                          child: _buildTeamCard(
-                            teamNumber: 1,
-                            accentColor: const Color(0xFFCCFF00),
-                            teamController: _team1Controller,
-                            playerAController: _player1Controller,
-                            playerBController: _player2Controller,
-                            playerALabel: 'Giocatore 1',
-                            playerBLabel: 'Giocatore 2',
-                            playerAId: 1,
-                            playerBId: 2,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        // SQUADRA 2 (Destra - Ciano Elettrico)
-                        Expanded(
-                          child: _buildTeamCard(
-                            teamNumber: 2,
-                            accentColor: const Color(0xFF00E5FF),
-                            teamController: _team2Controller,
-                            playerAController: _player3Controller,
-                            playerBController: _player4Controller,
-                            playerALabel: 'Giocatore 3',
-                            playerBLabel: 'Giocatore 4',
-                            playerAId: 3,
-                            playerBId: 4,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    _buildTeamCard(
+                      teamNumber: 2,
+                      accentColor: const Color(0xFF00E5FF),
+                      teamController: _team2Controller,
+                      playerAController: _player3Controller,
+                      playerBController: _player4Controller,
+                      playerALabel: 'Giocatore 3',
+                      playerBLabel: 'Giocatore 4',
+                      playerAId: 3,
+                      playerBId: 4,
                     ),
 
                     const SizedBox(height: 24),
@@ -512,15 +460,15 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             children: [
               Icon(Icons.sports_tennis, color: Color(0xFFCCFF00), size: 20),
               SizedBox(width: 8),
-              Text(
-                'CHI SERVE PER PRIMO? (ROTAZIONE A 4 GIOCATORI)',
+              Expanded(child: Text(
+                'PRIMO BATTITORE',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                   fontSize: 13,
                   letterSpacing: 1.0,
                 ),
-              ),
+              )),
             ],
           ),
           const SizedBox(height: 6),
@@ -698,24 +646,18 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             ),
           const Divider(color: Color(0xFF1E293B)),
           // Formato Set
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Formato Partita:',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              Row(
-                children: [
-                  _setChoiceChip(1, '1 Set'),
-                  const SizedBox(width: 8),
-                  _setChoiceChip(3, '3 Set (Consigliato)'),
-                  const SizedBox(width: 8),
-                  _setChoiceChip(5, '5 Set'),
-                ],
-              ),
-            ],
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Formato partita',
+              style: TextStyle(color: Colors.white,
+                fontWeight: FontWeight.bold, fontSize: 14)),
           ),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _setChoiceChip(1, '1 Set'),
+            _setChoiceChip(3, '3 Set (Consigliato)'),
+            _setChoiceChip(5, '5 Set'),
+          ]),
         ],
       ),
     );

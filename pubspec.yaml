@@ -15,6 +15,8 @@ dependencies:
   shared_preferences: ^2.5.2
   wakelock_plus: ^1.2.8
   volume_controller: ^2.0.8
+  # 11.x evita i nuovi requisiti AGP/Kotlin introdotti dalla 12.x.
+  share_plus: ">=11.1.0 <12.0.0"
 
 dev_dependencies:
   flutter_test:

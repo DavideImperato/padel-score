@@ -7,7 +7,7 @@ class WatchCommandGate {
     'point_a', 'point_b', 'undo', 'start_match',
     'pause_match', 'resume_match', 'end_match',
     'switch_sides', 'change_server', 'rule_golden', 'rule_star',
-    'rule_one_advantage', 'rule_traditional',
+    'rule_one_advantage', 'rule_traditional', 'share_result', 'new_match',
   };
 
   Future<void> _tail = Future<void>.value();

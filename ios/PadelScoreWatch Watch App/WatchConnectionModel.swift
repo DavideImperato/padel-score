@@ -109,6 +109,7 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
   @Published private(set) var match: WatchMatchState?
   @Published private(set) var updatedAt: Date?
   @Published private(set) var pendingCommands = 0
+  @Published private(set) var requiresResync = false
   @Published private(set) var lastCommandFeedback = ""
   private struct QueuedCommand {
     let id: String
@@ -117,6 +118,11 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
   }
   private var commandQueue: [QueuedCommand] = []
   private var sendingCommand = false
+  // Un comando senza ACK non deve bloccare definitivamente l'orologio.
+  // Non lo ritrasmettiamo: potrebbe essere gia' stato applicato su iPhone.
+  private var activeCommandId: String?
+  private var commandTimeout: DispatchWorkItem?
+  private let commandTimeoutSeconds: TimeInterval = 20
 
   override init() {
     super.init()
@@ -163,6 +169,10 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
          previous.sentAt >= newMatch.sentAt { return }
       self.match = newMatch
       self.updatedAt = Date()
+      if self.requiresResync {
+        self.requiresResync = false
+        self.lastCommandFeedback = "Stato aggiornato: verifica il punteggio."
+      }
       self.lastResult = "Stato aggiornato da iPhone"
     }
   }
@@ -177,6 +187,17 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
         }
       } else {
         self.receiveEnvelope(response)
+        // Una risposta diretta valida dell'iPhone e' una risincronizzazione
+        // esplicita, anche quando il punteggio non e' cambiato.
+        if let data = response["state"] as? [String: Any],
+           WatchMatchState(data) != nil {
+          DispatchQueue.main.async {
+            if self.requiresResync {
+              self.requiresResync = false
+              self.lastCommandFeedback = "Stato verificato: controlla il punteggio."
+            }
+          }
+        }
       }
     }, errorHandler: { error in
       DispatchQueue.main.async {
@@ -186,7 +207,7 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
   }
 
   var canScore: Bool {
-    reachable && match?.status == "live" && pendingCommands < 5
+    reachable && !requiresResync && match?.status == "live" && pendingCommands < 5
   }
 
   /// Comandi FIFO: tap rapidi mantengono l'ordine in cui vengono effettuati.
@@ -196,8 +217,12 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
                                  "pause_match", "resume_match", "end_match",
                                  "switch_sides", "change_server",
                                  "rule_golden", "rule_star", "rule_traditional",
-                                 "rule_one_advantage"]
+                                 "rule_one_advantage", "share_result", "new_match"]
     guard allowed.contains(action) else { return }
+    guard !requiresResync else {
+      lastCommandFeedback = "Controlla il punteggio e risincronizza."
+      return
+    }
     let session = WCSession.default
     guard session.activationState == .activated, session.isReachable else {
       lastCommandFeedback = "iPhone non raggiungibile"
@@ -224,6 +249,10 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
         return
       }
     }
+    if (action == "share_result" || action == "new_match") && match?.status != "finished" {
+      lastCommandFeedback = "Disponibile soltanto a partita conclusa"
+      return
+    }
     if action == "end_match" && match?.status != "live" && match?.status != "finished" {
       lastCommandFeedback = "Nessuna partita da terminare"
       return
@@ -234,33 +263,61 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
     sendNextCommand()
   }
 
+  private func invalidatePendingCommand() {
+    commandTimeout?.cancel()
+    commandTimeout = nil
+    activeCommandId = nil
+    sendingCommand = false
+    commandQueue.removeAll()
+    pendingCommands = 0
+  }
+
+  private func commandOutcomeUnknown(_ reason: String) {
+    invalidatePendingCommand()
+    requiresResync = true
+    lastCommandFeedback = reason
+    requestSnapshot() // Non ritrasmettere un punto con esito sconosciuto.
+  }
+
   private func sendNextCommand() {
     guard !sendingCommand, !commandQueue.isEmpty else { return }
     let session = WCSession.default
     guard session.activationState == .activated, session.isReachable else {
-      commandQueue.removeAll()
-      pendingCommands = 0
-      lastCommandFeedback = "Connessione persa. Risincronizza."
-      requestSnapshot()
+      commandOutcomeUnknown("Connessione persa. Risincronizza.")
+      return
+    }
+    // Dopo uno start/end il matchId puo' cambiare: nessun comando in coda
+    // deve essere applicato alla partita precedente.
+    guard commandQueue[0].matchId == match?.matchId else {
+      commandOutcomeUnknown("Partita cambiata. Controlla il risultato.")
       return
     }
     let command = commandQueue.removeFirst()
     sendingCommand = true
+    activeCommandId = command.id
+
+    let timeout = DispatchWorkItem { [weak self] in
+      guard let self, self.activeCommandId == command.id else { return }
+      self.commandOutcomeUnknown("Risposta scaduta: controlla iPhone e risincronizza.")
+    }
+    commandTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + commandTimeoutSeconds, execute: timeout)
+
     session.sendMessage([
       "type": "watch_command", "commandId": command.id,
       "matchId": command.matchId, "action": command.action,
       "sentAt": Int64(Date().timeIntervalSince1970 * 1000)
     ], replyHandler: { [weak self] response in
       DispatchQueue.main.async {
-        guard let self else { return }
+        guard let self, self.activeCommandId == command.id else { return }
+        self.commandTimeout?.cancel()
+        self.commandTimeout = nil
+        self.activeCommandId = nil
         self.sendingCommand = false
         self.pendingCommands = max(0, self.pendingCommands - 1)
         guard response["type"] as? String == "watch_command_ack",
               response["commandId"] as? String == command.id else {
-          self.commandQueue.removeAll()
-          self.pendingCommands = 0
-          self.lastCommandFeedback = "Risposta non valida: risincronizza"
-          self.requestSnapshot()
+          self.commandOutcomeUnknown("Risposta non valida: risincronizza.")
           return
         }
         if response["ok"] as? Bool == true {
@@ -274,12 +331,8 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
       }
     }, errorHandler: { [weak self] error in
       DispatchQueue.main.async {
-        guard let self else { return }
-        self.sendingCommand = false
-        self.commandQueue.removeAll()
-        self.pendingCommands = 0
-        self.lastCommandFeedback = "Esito incerto: risincronizza (\(error.localizedDescription))"
-        self.requestSnapshot() // Non ritrasmettere senza conoscere l'esito.
+        guard let self, self.activeCommandId == command.id else { return }
+        self.commandOutcomeUnknown("Esito incerto: risincronizza (\(error.localizedDescription))")
       }
     })
   }

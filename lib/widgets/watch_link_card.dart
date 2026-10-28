@@ -104,7 +104,7 @@ class _WatchLinkCardState extends State<WatchLinkCard> {
         Row(children: [
           Icon(Icons.watch, color: connected ? const Color(0xFF4ADE80) : const Color(0xFF94A3B8)),
           const SizedBox(width: 8),
-          const Expanded(child: Text('APPLE WATCH — COLLEGAMENTO (FASE 4A)',
+          const Expanded(child: Text('APPLE WATCH — COLLEGAMENTO',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
           IconButton(tooltip: 'Aggiorna collegamento', icon: const Icon(Icons.refresh), onPressed: _refresh),
         ]),
@@ -121,7 +121,7 @@ class _WatchLinkCardState extends State<WatchLinkCard> {
         ),
         if (_feedback != null)
           Text(_feedback!, style: const TextStyle(color: Color(0xFFCCFF00), fontSize: 12)),
-        const Text('Test di connessione soltanto: nessun punto viene assegnato dall’orologio.',
+        const Text('Il test Ping/Pong non modifica i punti. I comandi partita sono nella Watch App.',
             style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
       ]),
     );

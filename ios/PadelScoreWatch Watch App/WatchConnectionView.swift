@@ -8,6 +8,9 @@ private let padelCyan = Color(red: 0.0, green: 0.88, blue: 1.0)
 struct WatchConnectionView: View {
   @EnvironmentObject private var connection: WatchConnectionModel
   @State private var showEndConfirmation = false
+  @State private var showFinishedSummary = false
+  @State private var showFinishedStats = false
+  @State private var lastFinishedId: String?
   @State private var showRuleSelection = false
   @State private var showRuleLockedInfo = false
   @State private var showServerConfirmation = false
@@ -21,6 +24,20 @@ struct WatchConnectionView: View {
     }
     .tabViewStyle(.page(indexDisplayMode: .automatic))
     .onAppear { connection.requestSnapshot() }
+    .onReceive(connection.$match) { current in
+      if current?.status == "live" {
+        lastFinishedId = nil
+        showFinishedSummary = false
+        showFinishedStats = false
+      }
+      if let current, current.status == "finished", current.matchId != lastFinishedId {
+        lastFinishedId = current.matchId
+        showFinishedSummary = true
+      }
+    }
+    .sheet(isPresented: $showFinishedSummary) {
+      if showFinishedStats { finishedStatsSheet } else { finishedSheet }
+    }
     .confirmationDialog("Terminare la partita?", isPresented: $showEndConfirmation,
                         titleVisibility: .visible) {
       Button("Salva e termina", role: .destructive) {
@@ -51,6 +68,65 @@ struct WatchConnectionView: View {
       Button("Annulla", role: .cancel) {}
     } message: {
       Text("Consentito soltanto prima di iniziare il game, fuori dal tie-break.")
+    }
+  }
+
+  private var finishedSheet: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        Image(systemName: "trophy.fill")
+          .font(.title2).foregroundStyle(padelYellow)
+        Text("PARTITA TERMINATA")
+          .font(.system(size: 12, weight: .heavy))
+        if let match = connection.match {
+          Text(match.winner == "A" ? match.teamA : match.teamB)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(match.winner == "A" ? padelYellow : padelCyan)
+            .multilineTextAlignment(.center)
+          Text("\(match.setsA) – \(match.setsB)")
+            .font(.title2.bold())
+        }
+        Button { connection.sendCommand("share_result") } label: {
+          Label("Condividi", systemImage: "square.and.arrow.up")
+        }.disabled(!connection.reachable || connection.pendingCommands > 0)
+        Button { showFinishedStats = true } label: {
+          Label("Statistiche", systemImage: "chart.bar")
+        }
+        Button { connection.sendCommand("new_match") } label: {
+          Label("Nuovo incontro", systemImage: "plus.circle")
+        }.disabled(!connection.reachable || connection.pendingCommands > 0)
+        if !connection.lastCommandFeedback.isEmpty {
+          Text(connection.lastCommandFeedback)
+            .font(.system(size: 9)).foregroundStyle(.secondary)
+        }
+        Text("Nuovo incontro salva il risultato e riusa le impostazioni correnti.")
+          .font(.system(size: 9)).foregroundStyle(.secondary)
+        Button("Torna al punteggio") { showFinishedSummary = false }
+          .font(.caption2)
+      }
+      .padding(.horizontal, 5)
+    }
+  }
+
+  private var finishedStatsSheet: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 7) {
+        Text("STATISTICHE MATCH").font(.caption.bold())
+        if let match = connection.match {
+          Text("\(match.teamA): \(match.setsA) set")
+            .foregroundStyle(padelYellow)
+          Text("\(match.teamB): \(match.setsB) set")
+            .foregroundStyle(padelCyan)
+          Text("Durata: \(match.duration)").font(.caption2)
+          ForEach(match.completedSets) { set in
+            Text("Set \(set.id + 1): \(set.result)").font(.caption2)
+          }
+          Divider()
+          Text("Analisi avanzata disponibile su iPhone.")
+            .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+        Button("Indietro") { showFinishedStats = false }
+      }.frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -153,7 +229,7 @@ struct WatchConnectionView: View {
               Text("Ultimo risultato ricevuto · offline")
                 .font(.system(size: 9)).foregroundStyle(.orange)
             } else if match.status == "finished" {
-              Text("Vai a Controlli per salvare")
+              Button("RISULTATO FINALE") { showFinishedSummary = true }
                 .font(.system(size: 9)).foregroundStyle(.green)
             }
           }

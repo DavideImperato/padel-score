@@ -32,6 +32,7 @@
 	<!-- FORZA ORIENTAMENTO ORIZZONTALE ESCLUSIVO SU IPHONE E IPAD -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
+		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
