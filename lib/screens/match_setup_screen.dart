@@ -195,6 +195,7 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     final recovery = context.watch<PadelScoreProvider>();
     if (recovery.hasSavedMatch) {
       return Scaffold(
@@ -257,35 +258,56 @@ class _MatchSetupScreenState extends State<MatchSetupScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 620),
+                constraints: BoxConstraints(maxWidth: isTablet ? 900 : 620),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 4),
-                    // Squadre in colonna: setup progettato per orientamento verticale.
-                    _buildTeamCard(
-                      teamNumber: 1,
-                      accentColor: const Color(0xFFCCFF00),
-                      teamController: _team1Controller,
-                      playerAController: _player1Controller,
-                      playerBController: _player2Controller,
-                      playerALabel: 'Giocatore 1',
-                      playerBLabel: 'Giocatore 2',
-                      playerAId: 1,
-                      playerBId: 2,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTeamCard(
-                      teamNumber: 2,
-                      accentColor: const Color(0xFF00E5FF),
-                      teamController: _team2Controller,
-                      playerAController: _player3Controller,
-                      playerBController: _player4Controller,
-                      playerALabel: 'Giocatore 3',
-                      playerBLabel: 'Giocatore 4',
-                      playerAId: 3,
-                      playerBId: 4,
-                    ),
+                    // iPad: squadre affiancate; iPhone: squadre in colonna.
+                    if (isTablet)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: _buildTeamCard(
+                            teamNumber: 1,
+                            accentColor: const Color(0xFFCCFF00),
+                            teamController: _team1Controller,
+                            playerAController: _player1Controller,
+                            playerBController: _player2Controller,
+                            playerALabel: 'Giocatore 1', playerBLabel: 'Giocatore 2',
+                            playerAId: 1, playerBId: 2,
+                          )),
+                          const SizedBox(width: 18),
+                          Expanded(child: _buildTeamCard(
+                            teamNumber: 2,
+                            accentColor: const Color(0xFF00E5FF),
+                            teamController: _team2Controller,
+                            playerAController: _player3Controller,
+                            playerBController: _player4Controller,
+                            playerALabel: 'Giocatore 3', playerBLabel: 'Giocatore 4',
+                            playerAId: 3, playerBId: 4,
+                          )),
+                        ],
+                      )
+                    else ...[
+                      _buildTeamCard(
+                        teamNumber: 1, accentColor: const Color(0xFFCCFF00),
+                        teamController: _team1Controller,
+                        playerAController: _player1Controller,
+                        playerBController: _player2Controller,
+                        playerALabel: 'Giocatore 1', playerBLabel: 'Giocatore 2',
+                        playerAId: 1, playerBId: 2,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTeamCard(
+                        teamNumber: 2, accentColor: const Color(0xFF00E5FF),
+                        teamController: _team2Controller,
+                        playerAController: _player3Controller,
+                        playerBController: _player4Controller,
+                        playerALabel: 'Giocatore 3', playerBLabel: 'Giocatore 4',
+                        playerAId: 3, playerBId: 4,
+                      ),
+                    ],
 
                     const SizedBox(height: 24),
 

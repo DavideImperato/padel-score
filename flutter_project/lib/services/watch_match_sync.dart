@@ -55,12 +55,14 @@ Map<String, dynamic> buildWatchMatchState({
   bool sidesSwapped = false,
   bool canChangeRules = false,
   bool canChangeServer = false,
+  bool tournamentMatch = false,
 }) {
   final status = awaitingRecovery ? 'recovery' :
       (active ? (snapshot.matchWinner == null ? 'live' : 'finished') : 'idle');
   return <String, dynamic>{
     'version': 1,
     'matchId': matchId,
+    'tournamentMatch': tournamentMatch,
     'sentAt': DateTime.now().microsecondsSinceEpoch,
     'status': status,
     'teamA': teamAName,

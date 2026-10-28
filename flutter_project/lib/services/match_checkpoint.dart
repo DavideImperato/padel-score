@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../models/padel_match_state.dart';
+import 'tournament_match_link.dart';
 
 /// Formato locale versionato. Non contiene dati sincronizzati in rete.
 class MatchCheckpointCodec {
@@ -24,6 +25,8 @@ class MatchCheckpointCodec {
       if (value['matchId'] != null &&
           (value['matchId'] is! String || (value['matchId'] as String).isEmpty ||
            (value['matchId'] as String).length > 128)) return null;
+      if (value.containsKey('tournamentLink') &&
+          !TournamentMatchLink.valid(value['tournamentLink'])) return null;
       final settings = Map<String, dynamic>.from(value['settings'] as Map);
       final runtime = Map<String, dynamic>.from(value['runtime'] as Map);
       final ids = settings['playerIds'];

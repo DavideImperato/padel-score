@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Scenari congelati dal motore React Fase 2B.3B; Flutter confronta ogni step.",
+  "note": "Scenari storici di regressione del punteggio; Flutter verifica ogni passaggio.",
   "cases": [
     {
       "id": "golden-point-undo",

@@ -25,6 +25,10 @@ struct WatchConnectionView: View {
     .tabViewStyle(.page(indexDisplayMode: .automatic))
     .onAppear { connection.requestSnapshot() }
     .onReceive(connection.$match) { current in
+      if current?.status == "idle" {
+        showFinishedSummary = false
+        showFinishedStats = false
+      }
       if current?.status == "live" {
         lastFinishedId = nil
         showFinishedSummary = false
@@ -93,13 +97,16 @@ struct WatchConnectionView: View {
           Label("Statistiche", systemImage: "chart.bar")
         }
         Button { connection.sendCommand("new_match") } label: {
-          Label("Nuovo incontro", systemImage: "plus.circle")
+          Label(connection.match?.tournamentMatch == true ? "Torna al torneo" : "Nuovo incontro",
+                systemImage: "plus.circle")
         }.disabled(!connection.reachable || connection.pendingCommands > 0)
         if !connection.lastCommandFeedback.isEmpty {
           Text(connection.lastCommandFeedback)
             .font(.system(size: 9)).foregroundStyle(.secondary)
         }
-        Text("Nuovo incontro salva il risultato e riusa le impostazioni correnti.")
+        Text(connection.match?.tournamentMatch == true
+            ? "Salva il risultato nel torneo e torna al calendario su iPhone."
+            : "Nuovo incontro salva il risultato e riusa le impostazioni correnti.")
           .font(.system(size: 9)).foregroundStyle(.secondary)
         Button("Torna al punteggio") { showFinishedSummary = false }
           .font(.caption2)

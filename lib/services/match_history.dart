@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/padel_match_state.dart';
+import 'match_point_analytics.dart';
+import 'tournament_match_link.dart';
 
 /// Archivio separato dal checkpoint della partita in corso, solo locale.
 class MatchHistoryStore {
@@ -13,6 +15,8 @@ class MatchHistoryStore {
     final players = r['players'];
     final sets = r['sets'];
     final ids = r['playerIds'];
+    if (r.containsKey('pointEvents') && MatchPointAnalytics.decode(r['pointEvents']) == null) return false;
+    if (r.containsKey('tournamentLink') && !TournamentMatchLink.valid(r['tournamentLink'])) return false;
     if (r['version'] != 1 || r['id'] is! String ||
         (r['id'] as String).isEmpty || (r['id'] as String).length > 128 ||
         r['completedAt'] is! int || (r['completedAt'] as int) < 0 ||
@@ -66,8 +70,12 @@ class MatchHistoryStore {
     required String teamAName, required String teamBName,
     required List<String> players, List<String?>? playerIds, required int bestOfSets,
     required int gamesPerSet, required int completedAt,
+    List<Map<String, dynamic>>? pointEvents,
+    Map<String, dynamic>? tournamentLink,
   }) => {
     'version': 1, 'id': id, 'completedAt': completedAt,
+    if (tournamentLink != null) 'tournamentLink': Map<String, dynamic>.from(tournamentLink),
+    if (pointEvents != null) 'pointEvents': pointEvents.map((e) => Map<String, dynamic>.from(e)).toList(),
     'durationSeconds': durationSeconds,
     'teamAName': teamAName, 'teamBName': teamBName,
     'players': players, if (playerIds != null) 'playerIds': playerIds, 'winner': snapshot.matchWinner?.name,

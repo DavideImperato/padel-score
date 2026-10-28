@@ -8,6 +8,7 @@ import '../services/bluetooth_key_service.dart';
 import 'match_setup_screen.dart';
 import 'match_result_statistics_screen.dart';
 import '../services/app_orientation.dart';
+import '../widgets/scoreboard_team_layout.dart';
 import '../services/match_history.dart';
 import '../widgets/match_result_share_sheet.dart';
 
@@ -57,12 +58,29 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
       _watchExitScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).popUntil((route) => route is PageRoute);
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-        );
+        if (_provider.tournamentLink != null) {
+          unawaited(_returnToTournament());
+        } else {
+          Navigator.of(context).popUntil((route) => route is PageRoute);
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+          );
+        }
       });
     }
+  }
+
+  Future<void> _returnToTournament() async {
+    final dialogContext = _winnerDialogContext;
+    if (dialogContext != null && dialogContext.mounted &&
+        ModalRoute.of(dialogContext)?.isCurrent == true) {
+      final route = ModalRoute.of(dialogContext);
+      Navigator.of(dialogContext).pop();
+      if (route != null) await route.completed;
+    }
+    await AppOrientation.home();
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   Timer? _matchTimer;
@@ -77,11 +95,9 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
   @override
   void initState() {
     super.initState();
-    // 1. FORZATURA ORIENTAMENTO ESCLUSIVAMENTE ORIZZONTALE (LANDSCAPE)
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // L'orientamento è richiesto dal percorso di navigazione tramite
+    // AppOrientation.match(). Su iPadOS la finestra può restare verticale:
+    // ScoreboardTeamLayout adatta il punteggio senza perdere i comandi.
 
     // Nasconde la barra di navigazione e di stato per massima immersività
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -253,8 +269,9 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                   Expanded(
                     child: Builder(
                       builder: (context) {
-                        final teamACol = Expanded(
-                          child: _buildTeamColumn(
+                        return ScoreboardTeamLayout(
+                          swapSides: provider.isSidesSwapped,
+                          teamA: _buildTeamColumn(
                             context: context,
                             provider: provider,
                             team: Team.teamA,
@@ -271,15 +288,7 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                               provider.addPoint(Team.teamA);
                             },
                           ),
-                        );
-
-                        final divider = Container(
-                          width: 3,
-                          color: const Color(0xFF1E293B),
-                        );
-
-                        final teamBCol = Expanded(
-                          child: _buildTeamColumn(
+                          teamB: _buildTeamColumn(
                             context: context,
                             provider: provider,
                             team: Team.teamB,
@@ -296,12 +305,6 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                               provider.addPoint(Team.teamB);
                             },
                           ),
-                        );
-
-                        return Row(
-                          children: provider.isSidesSwapped
-                              ? [teamBCol, divider, teamACol]
-                              : [teamACol, divider, teamBCol],
                         );
                       },
                     ),
@@ -411,11 +414,18 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
               IconButton(
                 constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 visualDensity: VisualDensity.compact,
-                tooltip: 'Torna al setup',
+                tooltip: provider.tournamentLink == null ? 'Torna al setup' : 'Salva e torna al torneo',
                 icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: Colors.white70),
-                onPressed: () => Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-                ),
+                onPressed: () {
+                  if (provider.tournamentLink == null) {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const MatchSetupScreen()));
+                  } else if (provider.isMatchOver) {
+                    unawaited(_archiveFinishedMatch(provider));
+                  } else {
+                    unawaited(_archiveInterruptedMatch(provider));
+                  }
+                },
               ),
               if (!narrow) ...[
                 const SizedBox(width: 6),
@@ -489,7 +499,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                   else
                     const PopupMenuItem(value: 'interrupt', child: Text('Salva e interrompi')),
                   const PopupMenuItem(value: 'reset', child: Text('Azzera partita')),
-                  const PopupMenuItem(value: 'setup', child: Text('Torna al setup')),
+                  PopupMenuItem(value: 'setup', child: Text(
+                    provider.tournamentLink == null ? 'Torna al setup' : 'Salva e torna al torneo')),
                 ],
               ),
             ],
@@ -530,9 +541,17 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         _confirmResetDialog(context, provider);
         return;
       case 'setup':
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-        );
+        if (provider.tournamentLink != null) {
+          if (provider.isMatchOver) {
+            unawaited(_archiveFinishedMatch(provider));
+          } else {
+            unawaited(_archiveInterruptedMatch(provider));
+          }
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+          );
+        }
         return;
     }
   }
@@ -559,9 +578,13 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     final saved = await provider.interruptAndArchiveMatch();
     if (!mounted) return;
     if (saved) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-      );
+      if (provider.tournamentLink != null) {
+        await _returnToTournament();
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+        );
+      }
     } else {
       setState(() => _isArchiving = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -584,6 +607,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
       bestOfSets: provider.bestOfSets,
       gamesPerSet: provider.shortSets ? 4 : 6,
       completedAt: DateTime.now().millisecondsSinceEpoch,
+      pointEvents: provider.hasCompletePointEvents ? provider.pointEvents : null,
+      tournamentLink: provider.tournamentLink,
     );
     if (!mounted) return;
     await MatchResultShareSheet.show(context, record);
@@ -616,6 +641,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         bestOfSets: provider.bestOfSets,
         gamesPerSet: provider.shortSets ? 4 : 6,
         completedAt: DateTime.now().millisecondsSinceEpoch,
+        pointEvents: provider.hasCompletePointEvents ? provider.pointEvents : null,
+        tournamentLink: provider.tournamentLink,
       );
 
   Future<void> _openFinishedStatistics(PadelScoreProvider provider) async {
@@ -676,7 +703,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                   onPressed: () {
                     Navigator.pop(dialogContext);
                     unawaited(_archiveFinishedMatch(provider));
-                  }, child: const Text('+ Nuovo incontro', maxLines: 2, textAlign: TextAlign.center))),
+                  }, child: Text(provider.tournamentLink != null ? 'Torna al torneo' : '+ Nuovo incontro',
+                    maxLines: 2, textAlign: TextAlign.center))),
               ]),
             ],
           )),
@@ -695,9 +723,17 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     final saved = await provider.archiveFinishedMatch();
     if (!mounted) return;
     if (saved) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
-      );
+      if (provider.tournamentLink != null) {
+        if (provider.lastTournamentSyncError != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Partita salvata nello Storico. Torneo: ${provider.lastTournamentSyncError}')));
+        }
+        await _returnToTournament();
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MatchSetupScreen()),
+        );
+      }
     } else {
       setState(() => _isArchiving = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

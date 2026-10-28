@@ -3,12 +3,14 @@ import 'package:provider/provider.dart';
 import '../providers/padel_score_provider.dart';
 import '../services/app_orientation.dart';
 import '../services/app_preferences.dart';
+import '../widgets/app_about_footer.dart';
 import 'app_settings_screen.dart';
 import 'landscape_scoreboard_screen.dart';
 import 'match_history_screen.dart';
 import 'match_setup_screen.dart';
 import 'match_statistics_screen.dart';
 import 'player_directory_screen.dart';
+import 'tournaments_screen.dart';
 
 /// Home personale. Nessun account: il nome resta in SharedPreferences.
 class AppHomeScreen extends StatefulWidget {
@@ -175,12 +177,13 @@ class _AppHomeScreenState extends State<AppHomeScreen> with RouteAware {
     final provider = context.watch<PadelScoreProvider>();
     final onboarding = !prefs.hasName;
     final dark = prefs.darkMode;
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     return Scaffold(
       backgroundColor: dark ? const Color(0xFF091326) : const Color(0xFFF0F5FA),
       body: SafeArea(child: Center(child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 650),
+        constraints: BoxConstraints(maxWidth: isTablet ? 960 : 650),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
+          padding: EdgeInsets.fromLTRB(isTablet ? 30 : 18, 20, isTablet ? 30 : 18, 32),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SizedBox(height: 6),
             Center(
@@ -191,8 +194,8 @@ class _AppHomeScreenState extends State<AppHomeScreen> with RouteAware {
                   borderRadius: BorderRadius.circular(22),
                   child: Image.asset(
                     'assets/icon.png',
-                    width: MediaQuery.sizeOf(context).width < 380 ? 175 : 210,
-                    height: MediaQuery.sizeOf(context).width < 380 ? 175 : 210,
+                    width: isTablet ? 220 : (MediaQuery.sizeOf(context).width < 380 ? 175 : 210),
+                    height: isTablet ? 220 : (MediaQuery.sizeOf(context).width < 380 ? 175 : 210),
                     fit: BoxFit.contain,
                     errorBuilder: (_, __, ___) => const Icon(
                       Icons.sports_tennis,
@@ -250,18 +253,46 @@ class _AppHomeScreenState extends State<AppHomeScreen> with RouteAware {
                     MaterialPageRoute<void>(builder: (_) => const MatchHistoryScreen())))),
               ]),
               const SizedBox(height: 10),
-              _tile(title: 'GIOCATORI E COPPIE', subtitle: 'Gestisci la tua rubrica',
-                icon: Icons.groups_2_outlined, onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const PlayerDirectoryScreen()))),
-              const SizedBox(height: 10),
-              _tile(title: 'STATISTICHE', subtitle: 'Vittorie, risultati e andamento',
-                icon: Icons.bar_chart_rounded, onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const MatchStatisticsScreen()))),
-              const SizedBox(height: 10),
-              _tile(title: 'IMPOSTAZIONI', subtitle: 'Watch, audio, aspetto e informazioni',
-                icon: Icons.settings_outlined, onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const AppSettingsScreen()))),
+              if (isTablet) ...[
+                Row(children: [
+                  Expanded(child: _tile(title: 'GIOCATORI E COPPIE', subtitle: 'Gestisci la tua rubrica',
+                    icon: Icons.groups_2_outlined, onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const PlayerDirectoryScreen())))),
+                  const SizedBox(width: 12),
+                  Expanded(child: _tile(title: 'TORNEI', subtitle: 'Organizza tornei e iscrivi coppie',
+                    icon: Icons.emoji_events_outlined, onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const TournamentsScreen())))),
+                ]),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(child: _tile(title: 'STATISTICHE', subtitle: 'Vittorie, risultati e andamento',
+                    icon: Icons.bar_chart_rounded, onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const MatchStatisticsScreen())))),
+                  const SizedBox(width: 12),
+                  Expanded(child: _tile(title: 'IMPOSTAZIONI', subtitle: 'Watch, audio, aspetto e informazioni',
+                    icon: Icons.settings_outlined, onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const AppSettingsScreen())))),
+                ]),
+              ] else ...[
+                _tile(title: 'GIOCATORI E COPPIE', subtitle: 'Gestisci la tua rubrica',
+                  icon: Icons.groups_2_outlined, onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const PlayerDirectoryScreen()))),
+                const SizedBox(height: 10),
+                _tile(title: 'TORNEI', subtitle: 'Organizza tornei e iscrivi coppie',
+                  icon: Icons.emoji_events_outlined, onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const TournamentsScreen()))),
+                const SizedBox(height: 10),
+                _tile(title: 'STATISTICHE', subtitle: 'Vittorie, risultati e andamento',
+                  icon: Icons.bar_chart_rounded, onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const MatchStatisticsScreen()))),
+                const SizedBox(height: 10),
+                _tile(title: 'IMPOSTAZIONI', subtitle: 'Watch, audio, aspetto e informazioni',
+                  icon: Icons.settings_outlined, onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const AppSettingsScreen()))),
+              ],
             ],
+            const SizedBox(height: 24),
+            const AppAboutFooter(),
           ]),
         ),
       ))),

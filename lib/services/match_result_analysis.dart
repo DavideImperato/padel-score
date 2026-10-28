@@ -1,4 +1,5 @@
 import 'match_history.dart';
+import 'match_point_analytics.dart';
 
 /// Calcoli riproducibili dai soli risultati effettivamente archiviati.
 /// Non inventa colpi o punti attribuiti a singoli giocatori.
@@ -41,6 +42,7 @@ class MatchResultAnalysis {
       'perSet': perSet,
       'progression': progression,
       'durationSeconds': record['durationSeconds'],
+      'pointAnalytics': MatchPointAnalytics.fromRecord(record),
     };
   }
 }

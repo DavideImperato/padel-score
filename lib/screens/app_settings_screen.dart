@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/app_preferences.dart';
 import '../providers/padel_score_provider.dart';
 import '../widgets/watch_link_card.dart';
+import '../widgets/app_about_footer.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   const AppSettingsScreen({super.key});
@@ -29,7 +30,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       backgroundColor: dark ? const Color(0xFF091326) : const Color(0xFFF1F5FA),
       appBar: AppBar(title: const Text('Impostazioni')),
       body: SafeArea(child: Center(child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 650),
+        constraints: const BoxConstraints(maxWidth: 760),
         child: ListView(padding: const EdgeInsets.all(18), children: [
           const Text('IL TUO PROFILO', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -84,10 +85,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           const Text('INFORMAZIONI', style: TextStyle(fontWeight: FontWeight.bold)),
           const ListTile(leading: Icon(Icons.info_outline),
             title: Text('Padel Score Board'),
-            subtitle: Text('Versione 1.0.0 · App offline · iOS, Android, Apple Watch')),
-          const ListTile(leading: Icon(Icons.code),
-            title: Text('Sviluppatore'),
-            subtitle: Text('Padel Score Board · sviluppo indipendente')),
+            subtitle: Text('Segnapunti offline per iPhone, iPad e Apple Watch')),
+          const SizedBox(height: 6),
+          const AppAboutFooter(),
+          const SizedBox(height: 10),
           const ListTile(leading: Icon(Icons.star_border),
             title: Text('Lascia una recensione sull’App Store'),
             subtitle: Text('Il collegamento sarà attivato con l’ID pubblico dell’app.'),

@@ -8,3 +8,13 @@ coverage/
 .env*
 !.env.example
 .dart_tool/hooks_runner/
+
+# Flutter project generated files
+flutter_project/.dart_tool/
+flutter_project/.flutter-plugins-dependencies
+flutter_project/android/local.properties
+flutter_project/ios/Flutter/ephemeral/
+flutter_project/ios/Flutter/Generated.xcconfig
+flutter_project/ios/Flutter/flutter_export_environment.sh
+flutter_project/ios/Runner/GeneratedPluginRegistrant.h
+flutter_project/ios/Runner/GeneratedPluginRegistrant.m

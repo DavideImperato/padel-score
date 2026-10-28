@@ -10,7 +10,7 @@ import 'support/fake_tts_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Primo avvio richiede il nome e mostra le cinque destinazioni', (tester) async {
+  testWidgets('Primo avvio richiede il nome e mostra le sei destinazioni', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(430, 940);
     tester.view.devicePixelRatio = 1.0;
@@ -36,6 +36,7 @@ void main() {
     expect(find.text('INIZIA PARTITA'), findsOneWidget);
     expect(find.text('STORICO PARTITE'), findsOneWidget);
     expect(find.text('GIOCATORI E COPPIE'), findsOneWidget);
+    expect(find.text('TORNEI'), findsOneWidget);
     expect(find.text('STATISTICHE'), findsOneWidget);
     expect(find.text('IMPOSTAZIONI'), findsOneWidget);
     // Il nome e' gia' nel logo: non deve esserci un secondo titolo.

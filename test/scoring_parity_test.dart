@@ -8,8 +8,8 @@ import 'package:padel_scorebot/providers/padel_score_provider.dart';
 
 import 'support/fake_tts_service.dart';
 
-/// Esegue le STESSE sequenze e confronta gli STESSI snapshot congelati
-/// dal motore React (scripts/verify-scoring-parity.cjs).
+/// Esegue sequenze congelate di regressione del punteggio,
+/// preservate dopo la rimozione della vecchia implementazione React.
 ///
 /// Avvio dalla root del progetto Flutter:
 ///   flutter test test/scoring_parity_test.dart
@@ -29,7 +29,7 @@ void main() {
 
   for (final rawCase in cases) {
     final scenario = rawCase as Map<String, dynamic>;
-    test('React/Flutter: ${scenario['id']}', () {
+    test('Punteggio - fixture: ${scenario['id']}', () {
       SharedPreferences.setMockInitialValues({});
 
       final provider = PadelScoreProvider(ttsService: FakeTtsService());

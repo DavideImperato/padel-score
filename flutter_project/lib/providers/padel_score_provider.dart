@@ -5,7 +5,10 @@ import '../models/padel_match_state.dart';
 import '../services/tts_service.dart';
 import '../services/match_checkpoint.dart';
 import '../services/match_history.dart';
+import '../services/match_point_analytics.dart';
 import '../services/match_interrupted.dart';
+import '../services/tournament_match_link.dart';
+import '../services/tournament_store.dart';
 import '../services/watch_match_sync.dart';
 import '../services/watch_command_gate.dart';
 
@@ -15,6 +18,12 @@ class PadelScoreProvider extends ChangeNotifier {
   // Snapshot corrente e cronologia per Undo
   PadelMatchSnapshot _currentSnapshot = PadelMatchSnapshot.initial();
   final List<PadelMatchSnapshot> _history = [];
+  final List<Map<String, dynamic>> _pointEvents = [];
+  List<Map<String, dynamic>> get pointEvents =>
+      List.unmodifiable(_pointEvents.map((event) => Map<String, dynamic>.from(event)));
+  bool get hasCompletePointEvents => _pointTrackingComplete;
+  bool _processingPoint = false;
+  bool _pointTrackingComplete = true;
 
   // Squadre e 4 Giocatori
   String _teamAName = 'Gli Smashtori';
@@ -38,6 +47,10 @@ class PadelScoreProvider extends ChangeNotifier {
   bool _shortSets = false; // Mini-set FIP: 4 game, tie-break sul 4-4
 
   // Checkpoint offline: serializza in coda le scritture, senza invertire i punti rapidi.
+  Map<String, dynamic>? _tournamentLink;
+  Map<String, dynamic>? get tournamentLink => _tournamentLink == null ? null : Map<String, dynamic>.from(_tournamentLink!);
+  String? _lastTournamentSyncError;
+  String? get lastTournamentSyncError => _lastTournamentSyncError;
   bool _activeCheckpoint = false;
   bool _finalizingMatch = false;
   String _matchArchiveId = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
@@ -99,6 +112,11 @@ class PadelScoreProvider extends ChangeNotifier {
       }
       final saved = await archiveFinishedMatch();
       if (!saved) return {'ok': false, 'code': 'save_failed'};
+      if (_tournamentLink != null) {
+        _watchEndSequence++;
+        notifyListeners();
+        return {'ok': true, 'code': 'archived'};
+      }
       // Una partita nuova usa i nomi e le regole confermati sul telefono.
       // Non riassegnare punti e non ripetere il comando in caso di timeout.
       setupMatch(team1: _teamAName, team2: _teamBName,
@@ -212,6 +230,9 @@ class PadelScoreProvider extends ChangeNotifier {
     },
     'snapshot': MatchCheckpointCodec.snapshotToJson(_currentSnapshot),
     'history': _history.map(MatchCheckpointCodec.snapshotToJson).toList(),
+    'pointEvents': _pointEvents,
+    'pointTrackingComplete': _pointTrackingComplete,
+    if (_tournamentLink != null) 'tournamentLink': _tournamentLink,
     'runtime': {
       'elapsedSeconds': _elapsedSeconds, 'isTimerRunning': _isTimerRunning,
       'isSidesSwapped': _isSidesSwapped,
@@ -234,6 +255,8 @@ class PadelScoreProvider extends ChangeNotifier {
       playerIds: _playerIds,
       bestOfSets: _bestOfSets, gamesPerSet: _shortSets ? 4 : 6,
       completedAt: DateTime.now().millisecondsSinceEpoch,
+      pointEvents: _pointTrackingComplete ? _pointEvents : null,
+      tournamentLink: _tournamentLink,
     );
     _activeCheckpoint = false;
     var saved = false;
@@ -245,7 +268,13 @@ class PadelScoreProvider extends ChangeNotifier {
       } catch (_) { saved = false; }
     });
     await _writeQueue;
-    if (!saved) _activeCheckpoint = true;
+    if (!saved) {
+      _activeCheckpoint = true;
+    } else if (_tournamentLink != null) {
+      // Lo storico viene archiviato prima del torneo: se il secondo salvataggio
+      // fallisce, la partita resta recuperabile per la riconciliazione.
+      _lastTournamentSyncError = await TournamentStore.applyFinishedRecord(record);
+    }
     _finalizingMatch = false;
     _publishWatchState();
     return saved;
@@ -328,6 +357,7 @@ class PadelScoreProvider extends ChangeNotifier {
       elapsedSeconds: _elapsedSeconds,
       timerRunning: _isTimerRunning,
       canUndo: canUndo,
+      tournamentMatch: _tournamentLink != null,
       sidesSwapped: _isSidesSwapped,
       canChangeRules: _activeCheckpoint &&
           _currentSnapshot.matchWinner == null && _history.isEmpty &&
@@ -345,6 +375,7 @@ class PadelScoreProvider extends ChangeNotifier {
 
   @override
   void notifyListeners() {
+    if (_processingPoint) return;
     _scheduleCheckpoint();
     _publishWatchState();
     super.notifyListeners();
@@ -392,6 +423,14 @@ class PadelScoreProvider extends ChangeNotifier {
       _decidingTieBreakPoints = config['decidingTieBreakPoints'] as int;
       _currentSnapshot = snap;
       _history..clear()..addAll(history);
+      // I vecchi checkpoint non hanno eventi: nessun dato viene inventato.
+      final restoredEvents = MatchPointAnalytics.decode(checkpoint['pointEvents']);
+      _pointTrackingComplete = checkpoint.containsKey('pointEvents') &&
+          checkpoint['pointTrackingComplete'] != false && restoredEvents != null;
+      _pointEvents..clear()..addAll(restoredEvents ?? []);
+      _tournamentLink = TournamentMatchLink.valid(checkpoint['tournamentLink'])
+          ? Map<String, dynamic>.from(checkpoint['tournamentLink'] as Map) : null;
+      _lastTournamentSyncError = null;
       _elapsedSeconds = runtime['elapsedSeconds'] as int;
       _isTimerRunning = runtime['isTimerRunning'] == true && snap.matchWinner == null;
       _isSidesSwapped = runtime['isSidesSwapped'] == true;
@@ -406,6 +445,7 @@ class PadelScoreProvider extends ChangeNotifier {
 
   void discardSavedMatch() {
     _pendingRecovery = null;
+    _tournamentLink = null;
     _activeCheckpoint = false;
     _writeQueue = _writeQueue.then((_) async {
       try { await (await SharedPreferences.getInstance()).remove(MatchCheckpointCodec.key); } catch (_) {}
@@ -513,7 +553,13 @@ class PadelScoreProvider extends ChangeNotifier {
     bool decidingMatchTieBreak = false,
     int decidingTieBreakPoints = 10,
     List<String?>? playerIds,
+    Map<String, dynamic>? tournamentLink,
   }) {
+    if (tournamentLink != null && !TournamentMatchLink.valid(tournamentLink)) {
+      throw ArgumentError.value(tournamentLink, 'tournamentLink', 'Collegamento torneo non valido');
+    }
+    _tournamentLink = tournamentLink == null ? null : Map<String, dynamic>.from(tournamentLink);
+    _lastTournamentSyncError = null;
     _configurationVersion++;
     _pendingRecovery = null;
     _matchArchiveId = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
@@ -543,6 +589,8 @@ class PadelScoreProvider extends ChangeNotifier {
     final Team initialTeam = getTeamForPlayerId(_firstServerPlayerId);
 
     _history.clear();
+    _pointEvents.clear();
+    _pointTrackingComplete = true;
     _currentSnapshot = PadelMatchSnapshot.initial(
       initialServer: initialTeam,
       initialRotationIndex: 0,
@@ -617,13 +665,41 @@ class PadelScoreProvider extends ChangeNotifier {
     if (!_activeCheckpoint || _finalizingMatch || isMatchOver) return;
     _configurationVersion++;
 
-    _history.add(_currentSnapshot);
-
-    if (_currentSnapshot.isTieBreak) {
-      _processTieBreakPoint(scoringTeam);
-      return;
+    final before = _currentSnapshot;
+    final serverPlayerId = currentServerPlayerId;
+    final wasGolden = before.isGoldenPointSituation(
+        _isGoldenPoint, _advantagesBeforeGoldenPoint);
+    _history.add(before);
+    // I metodi del motore notificano il risultato prima di uscire: tratteniamo
+    // una sola notifica fino a quando e` stato incluso anche l'evento del punto.
+    _processingPoint = true;
+    try {
+      if (before.isTieBreak) {
+        _processTieBreakPoint(scoringTeam);
+      } else {
+        _processStandardPoint(scoringTeam);
+      }
+    } finally {
+      _processingPoint = false;
     }
-    _processStandardPoint(scoringTeam);
+    if (!identical(before, _currentSnapshot) && _pointTrackingComplete) {
+      if (_pointEvents.length >= MatchPointAnalytics.maxEvents) {
+        // Non presentare statistiche parziali come se fossero complete.
+        _pointTrackingComplete = false;
+      } else {
+        _pointEvents.add(MatchPointAnalytics.event(
+          index: _pointEvents.length + 1,
+          undoDepth: _history.length,
+          elapsedSeconds: _elapsedSeconds,
+          scoringTeam: scoringTeam,
+          serverPlayerId: serverPlayerId,
+          before: before,
+          after: _currentSnapshot,
+          goldenPoint: wasGolden,
+        ));
+      }
+    }
+    notifyListeners();
   }
 
   void _processStandardPoint(Team scoringTeam) {
@@ -960,6 +1036,10 @@ class PadelScoreProvider extends ChangeNotifier {
   void undo() {
     if (!_activeCheckpoint || _finalizingMatch) return;
     if (_history.isEmpty) return;
+    if (_pointEvents.isNotEmpty &&
+        _pointEvents.last['undoDepth'] == _history.length) {
+      _pointEvents.removeLast();
+    }
     _currentSnapshot = _history.removeLast();
     notifyListeners();
     _ttsService.speak('Punto annullato.');
@@ -968,6 +1048,8 @@ class PadelScoreProvider extends ChangeNotifier {
   void resetMatch() {
     if (!_activeCheckpoint || _finalizingMatch) return;
     _history.clear();
+    _pointEvents.clear();
+    _pointTrackingComplete = true;
     _isSidesSwapped = false;
     _elapsedSeconds = 0;
     _isTimerRunning = true;

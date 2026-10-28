@@ -18,6 +18,9 @@ import WatchConnectivity
     WatchLinkBridge.shared.attach(
       messenger: engineBridge.applicationRegistrar.messenger()
     )
+    IPadGeometryBridge.shared.attach(
+      messenger: engineBridge.applicationRegistrar.messenger()
+    )
   }
 }
 
@@ -243,5 +246,44 @@ private final class WatchLinkBridge: NSObject, WCSessionDelegate, FlutterStreamH
       self?.emitStatus()
     }
     replyHandler(["type": "pong", "requestId": id])
+  }
+}
+
+/// Fase 7A.1: richiesta nativa di orientamento delle scene iPad.
+/// L'OS può rifiutare la rotazione in Stage Manager e in modalità finestra;
+/// non alteriamo le regole dei punteggi o i canali WatchConnectivity.
+private final class IPadGeometryBridge: NSObject {
+  static let shared = IPadGeometryBridge()
+  private let channelName = "padel_score_board/ipad_geometry"
+  private var channel: FlutterMethodChannel?
+
+  func attach(messenger: FlutterBinaryMessenger) {
+    channel?.setMethodCallHandler(nil)
+    let next = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    next.setMethodCallHandler { [weak self] call, reply in
+      guard call.method == "requestOrientation", let mode = call.arguments as? String,
+            mode == "portrait" || mode == "landscape" else {
+        reply(FlutterMethodNotImplemented)
+        return
+      }
+      self?.request(mode: mode)
+      reply(nil)
+    }
+    channel = next
+  }
+
+  private func request(mode: String) {
+    // Non interferire mai con le rotazioni dell'iPhone.
+    guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+    guard #available(iOS 16.0, *) else { return }
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    guard let scene = scenes.first(where: { $0.activationState == .foregroundActive })
+        ?? scenes.first(where: { $0.activationState == .foregroundInactive }) else { return }
+    let mask: UIInterfaceOrientationMask = mode == "portrait" ? .portrait : .landscape
+    scene.windows.first(where: { $0.isKeyWindow })?.rootViewController?
+      .setNeedsUpdateOfSupportedInterfaceOrientations()
+    scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
+      NSLog("iPad orientation %@ not applied: %@", mode, error.localizedDescription)
+    }
   }
 }

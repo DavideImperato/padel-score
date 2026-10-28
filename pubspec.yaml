@@ -17,6 +17,8 @@ dependencies:
   volume_controller: ^2.0.8
   # 11.x evita i nuovi requisiti AGP/Kotlin introdotti dalla 12.x.
   share_plus: ">=11.1.0 <12.0.0"
+  package_info_plus: 9.0.1
+  url_launcher: 6.3.0
 
 dev_dependencies:
   flutter_test:

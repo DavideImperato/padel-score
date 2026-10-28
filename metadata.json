@@ -1,6 +1,0 @@
-{
-  "name": "Padel ScoreBot - Tabellone Segnapunti Padel",
-  "description": "Tabellone segnapunti per Padel 100% offline in orizzontale ad alto contrasto con sintesi vocale italiana, punto d'oro, tie-break e supporto telecomandi Bluetooth.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

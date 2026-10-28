@@ -10,6 +10,7 @@ struct WatchMatchState {
   }
 
   let matchId: String
+  let tournamentMatch: Bool
   let sentAt: Int64
   let status: String
   let teamA: String
@@ -51,6 +52,7 @@ struct WatchMatchState {
           let pointsA = data["pointsA"] as? String,
           let pointsB = data["pointsB"] as? String else { return nil }
     self.matchId = matchId
+    tournamentMatch = data["tournamentMatch"] as? Bool ?? false
     self.sentAt = sentAt
     self.status = status
     self.teamA = teamA
