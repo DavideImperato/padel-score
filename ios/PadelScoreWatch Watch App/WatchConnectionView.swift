@@ -229,7 +229,14 @@ struct WatchConnectionView: View {
             }
             .frame(maxHeight: .infinity)
 
-            if connection.pendingCommands > 0 {
+            if connection.requiresResync {
+              Button("VERIFICA SU IPHONE · RISINCRONIZZA") {
+                connection.requestSnapshot(confirmUnknownResult: true)
+              }
+              .disabled(!connection.reachable)
+              .font(.system(size: 9, weight: .bold))
+              .foregroundStyle(.orange)
+            } else if connection.pendingCommands > 0 {
               Text("Invio \(connection.pendingCommands)…")
                 .font(.system(size: 9)).foregroundStyle(.orange)
             } else if !connection.reachable {
@@ -268,7 +275,7 @@ struct WatchConnectionView: View {
           .disabled(!connection.reachable || connection.pendingCommands > 0)
           .tint(padelYellow)
       } else if connection.match == nil {
-        Button("SINCRONIZZA") { connection.requestSnapshot() }
+        Button("SINCRONIZZA") { connection.requestSnapshot(confirmUnknownResult: true) }
           .disabled(!connection.reachable)
       }
       Spacer(minLength: 0)
@@ -395,7 +402,7 @@ struct WatchConnectionView: View {
           Text("Avvia una partita per attivare i controlli")
             .font(.caption2).foregroundStyle(.secondary)
         }
-        Button { connection.requestSnapshot() } label: {
+        Button { connection.requestSnapshot(confirmUnknownResult: true) } label: {
           Label("Risincronizza", systemImage: "arrow.clockwise")
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -454,7 +461,7 @@ struct WatchConnectionView: View {
           .multilineTextAlignment(.center)
         Button("PROVA PING") { connection.pingPhone() }
           .disabled(!connection.reachable || connection.isPinging)
-        Button("RISINCRONIZZA") { connection.requestSnapshot() }
+        Button("RISINCRONIZZA") { connection.requestSnapshot(confirmUnknownResult: true) }
           .disabled(!connection.reachable)
         if let updated = connection.updatedAt {
           Text("Ultimo stato: \(updated.formatted(date: .omitted, time: .standard))")

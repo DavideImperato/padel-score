@@ -102,6 +102,26 @@ struct WatchMatchState {
   }
 }
 
+/// Regole testabili di accettazione snapshot: non sbloccare mai un comando
+/// incerto con un context automatico o uno stato piu' vecchio.
+struct WatchSnapshotDecision {
+  let accept: Bool
+  let update: Bool
+  let unlock: Bool
+
+  static func evaluate(previous: WatchMatchState?, incoming: WatchMatchState,
+                       manualVerification: Bool, requiresResync: Bool) -> Self {
+    if let previous, incoming.sentAt < previous.sentAt {
+      return Self(accept: false, update: false, unlock: false)
+    }
+    return Self(
+      accept: true,
+      update: previous?.sentAt != incoming.sentAt || previous?.matchId != incoming.matchId,
+      unlock: manualVerification && requiresResync
+    )
+  }
+}
+
 /// Fase 4C: iPhone autorevole; tap sul Watch invia solo comandi con ID univoci.
 final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate {
   @Published private(set) var status = "Inizializzazione…"
@@ -153,10 +173,16 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
       self.status = !active ? "Connessione in avvio" :
         (!session.isCompanionAppInstalled ? "Installa l’app su iPhone" :
          (session.isReachable ? "iPhone raggiungibile" : "Apri l’app su iPhone"))
+      // Se il link cade con un comando in volo, l'iPhone potrebbe averlo gia'
+      // applicato. Evita che nuovi tap rimangano dietro a un ACK irraggiungibile.
+      if !self.reachable && self.pendingCommands > 0 {
+        self.commandOutcomeUnknown("Connessione interrotta: verifica il risultato su iPhone.")
+      }
     }
   }
 
-  private func receiveEnvelope(_ envelope: [String: Any]) {
+  private func receiveEnvelope(_ envelope: [String: Any],
+                               confirmUnknownResult: Bool = false) {
     guard envelope["type"] as? String == "match_state" else { return }
     guard let payload = envelope["state"] as? [String: Any],
           let newMatch = WatchMatchState(payload) else {
@@ -166,20 +192,29 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
       return
     }
     DispatchQueue.main.async {
-      // Lo stesso snapshot puo' arrivare via context e messaggio immediato.
-      if let previous = self.match,
-         previous.sentAt >= newMatch.sentAt { return }
-      self.match = newMatch
-      self.updatedAt = Date()
-      if self.requiresResync {
+      // Ignora snapshot obsoleti. Un duplicato e' valido per una verifica
+      // richiesta esplicitamente, senza azzerare il cronometro interpolato.
+      let decision = WatchSnapshotDecision.evaluate(
+        previous: self.match, incoming: newMatch,
+        manualVerification: confirmUnknownResult, requiresResync: self.requiresResync
+      )
+      guard decision.accept else { return }
+      if decision.update {
+        self.match = newMatch
+        self.updatedAt = Date()
+      }
+      // Gli aggiornamenti automatici non sono conferma di un comando con
+      // esito incerto: potrebbe essere arrivato uno snapshot precedente.
+      // Il giocatore deve controllare iPhone e richiedere la risincronizzazione.
+      if decision.unlock {
         self.requiresResync = false
-        self.lastCommandFeedback = "Stato aggiornato: verifica il punteggio."
+        self.lastCommandFeedback = "Stato verificato con iPhone."
       }
       self.lastResult = "Stato aggiornato da iPhone"
     }
   }
 
-  func requestSnapshot() {
+  func requestSnapshot(confirmUnknownResult: Bool = false) {
     let session = WCSession.default
     guard session.activationState == .activated, session.isReachable else { return }
     session.sendMessage(["type": "get_match_state"], replyHandler: { response in
@@ -188,18 +223,9 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
           self.lastResult = "Nessuna partita ancora pubblicata da iPhone"
         }
       } else {
-        self.receiveEnvelope(response)
-        // Una risposta diretta valida dell'iPhone e' una risincronizzazione
-        // esplicita, anche quando il punteggio non e' cambiato.
-        if let data = response["state"] as? [String: Any],
-           WatchMatchState(data) != nil {
-          DispatchQueue.main.async {
-            if self.requiresResync {
-              self.requiresResync = false
-              self.lastCommandFeedback = "Stato verificato: controlla il punteggio."
-            }
-          }
-        }
+        // Soltanto una risposta diretta ad una richiesta esplicita dell'utente
+        // puo' sbloccare i comandi dopo un esito incerto.
+        self.receiveEnvelope(response, confirmUnknownResult: confirmUnknownResult)
       }
     }, errorHandler: { error in
       DispatchQueue.main.async {
@@ -222,7 +248,7 @@ final class WatchConnectionModel: NSObject, ObservableObject, WCSessionDelegate 
                                  "rule_one_advantage", "share_result", "new_match"]
     guard allowed.contains(action) else { return }
     guard !requiresResync else {
-      lastCommandFeedback = "Controlla il punteggio e risincronizza."
+      lastCommandFeedback = "Verifica il risultato su iPhone, poi risincronizza."
       return
     }
     let session = WCSession.default

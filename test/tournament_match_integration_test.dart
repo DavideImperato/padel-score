@@ -1,13 +1,13 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../lib/models/padel_match_state.dart';
-import '../lib/providers/padel_score_provider.dart';
-import '../lib/services/match_checkpoint.dart';
-import '../lib/services/match_history.dart';
-import '../lib/services/tournament_draw.dart';
-import '../lib/services/tournament_match_link.dart';
-import '../lib/services/tournament_store.dart';
+import 'package:padel_scorebot/models/padel_match_state.dart';
+import 'package:padel_scorebot/providers/padel_score_provider.dart';
+import 'package:padel_scorebot/services/match_checkpoint.dart';
+import 'package:padel_scorebot/services/match_history.dart';
+import 'package:padel_scorebot/services/tournament_draw.dart';
+import 'package:padel_scorebot/services/tournament_match_link.dart';
+import 'package:padel_scorebot/services/tournament_store.dart';
 import 'support/fake_tts_service.dart';
 
 Map<String, dynamic> _tournament() => {

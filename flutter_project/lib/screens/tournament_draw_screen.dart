@@ -186,13 +186,16 @@ class _TournamentDrawScreenState extends State<TournamentDrawScreen> {
     final values = List.generate(3, (i) => List.generate(2, (j) =>
         i < saved.length ? '${saved[i][j]}' : (j == 0 ? '6' : '4')));
     var useThird = saved.length == 3;
+    var saving = false;
     String? validation;
-    // Il future di showDialog termina su Navigator.pop, prima della fine
-    // della transizione. Aspettiamo invece la rimozione completa dell'overlay
-    // prima di ricostruire il tabellone e scrivere il risultato.
+    // Salviamo prima di chiudere il dialogo: una scrittura fallita non deve
+    // sparire silenziosamente dopo la transizione della route.
     final route = DialogRoute<List<List<int>>?>(
       context: context,
-      builder: (dialog) => StatefulBuilder(builder: (dialog, update) => AlertDialog(
+      barrierDismissible: false,
+      builder: (dialog) => StatefulBuilder(builder: (dialog, update) => PopScope(
+        canPop: !saving,
+        child: AlertDialog(
         title: const Text('Risultato incontro'),
         content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: Column(
           mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,10 +241,11 @@ class _TournamentDrawScreenState extends State<TournamentDrawScreen> {
         ))),
         actions: [
           if (saved.isNotEmpty) TextButton(
-            onPressed: () => Navigator.pop(dialog, <List<int>>[]),
+            onPressed: saving ? null : () => Navigator.pop(dialog, <List<int>>[]),
             child: const Text('Cancella risultato')),
-          TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Annulla')),
-          FilledButton(onPressed: () {
+          TextButton(onPressed: saving ? null : () => Navigator.pop(dialog),
+            child: const Text('Annulla')),
+          FilledButton(onPressed: saving ? null : () async {
             final sets = <List<int>>[];
             for (var i = 0; i < (useThird ? 3 : 2); i++) {
               final a = int.tryParse(values[i][0]);
@@ -256,14 +260,33 @@ class _TournamentDrawScreenState extends State<TournamentDrawScreen> {
               update(() => validation = 'Risultato non valido: una coppia deve vincere 2 set.');
               return;
             }
-            Navigator.pop(dialog, sets);
-          }, child: const Text('Salva')),
+            update(() { saving = true; validation = null; });
+            final error = await TournamentStore.saveResult(
+                widget.tournamentId, match['id'] as String, sets);
+            if (!mounted || !dialog.mounted) return;
+            if (error != null) {
+              update(() { validation = error; saving = false; });
+              return;
+            }
+            // PopScope blocca la chiusura mentre saving è true.
+            // Riabilitiamo il pop e attendiamo il frame che aggiorna PopScope.
+            update(() => saving = false);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (dialog.mounted) Navigator.of(dialog).pop(sets);
+            });
+          }, child: Text(saving ? 'Salvataggio…' : 'Salva')),
         ],
-      )),
+      ))),
     );
     final command = await Navigator.of(context, rootNavigator: true).push(route);
     await route.completed;
     if (!mounted || command == null) return;
+    // Il risultato è già scritto su disco; ricarichiamo dopo la rimozione
+    // dell'overlay, per non ricostruire il tabellone sotto al dialogo aperto.
+    if (command.isNotEmpty) {
+      await _reload();
+      return;
+    }
     if (command.isEmpty) {
       final confirm = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
         title: const Text('Cancellare il risultato?'),
@@ -275,8 +298,8 @@ class _TournamentDrawScreenState extends State<TournamentDrawScreen> {
       ));
       if (confirm != true || !mounted) return;
     }
-    await _change(() => TournamentStore.saveResult(widget.tournamentId,
-        match['id'] as String, command.isEmpty ? null : command));
+    await _change(() => TournamentStore.saveResult(
+        widget.tournamentId, match['id'] as String, null));
   }
 
   Widget _fixture(Map match) {

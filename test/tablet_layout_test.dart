@@ -34,9 +34,20 @@ void main() {
       ChangeNotifierProvider<PadelScoreProvider>.value(value: provider),
     ], child: const MaterialApp(home: AppHomeScreen())));
     await tester.pumpAndSettle();
-    final yPlayers = tester.getTopLeft(find.text('GIOCATORI E COPPIE')).dy;
-    final yTournament = tester.getTopLeft(find.text('TORNEI')).dy;
-    expect((yPlayers - yTournament).abs(), lessThan(2));
+    // Le card condividono la stessa riga, ma i testi possono avere
+    // altezze diverse per via dei sottotitoli e del centramento interno.
+    final playersCard = find.ancestor(
+      of: find.text('GIOCATORI E COPPIE'), matching: find.byType(Card));
+    final tournamentCard = find.ancestor(
+      of: find.text('TORNEI'), matching: find.byType(Card));
+    expect(playersCard, findsOneWidget);
+    expect(tournamentCard, findsOneWidget);
+    // Row centra verticalmente le card, che hanno altezze diverse:
+    // confrontiamo i centri e non i bordi superiori.
+    final playersCenter = tester.getCenter(playersCard);
+    final tournamentCenter = tester.getCenter(tournamentCard);
+    expect((playersCenter.dy - tournamentCenter.dy).abs(), lessThan(2));
+    expect(playersCenter.dx, lessThan(tournamentCenter.dx));
     expect(find.text('Sviluppatore: Davide Imperato'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
