@@ -1,5 +1,6 @@
 import type { MatchSettings, PadelMatchSnapshot, SetScore, Team } from '../types/padel';
 import type { CheckpointStorage } from './matchPersistence';
+import { decodePointEvents, type PointEvent } from './matchPointAnalytics';
 
 export const MATCH_HISTORY_KEY = 'padel_completed_matches_v1';
 const VERSION = 1;
@@ -18,6 +19,7 @@ export interface ArchivedMatch {
   sets: SetScore[];
   bestOfSets: number;
   gamesPerSet: 4 | 6;
+  pointEvents?: PointEvent[];
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -37,7 +39,8 @@ export function isArchivedMatch(value: unknown): value is ArchivedMatch {
       (value.playerIds !== undefined && (!Array.isArray(value.playerIds) || value.playerIds.length !== 4 || !value.playerIds.every(v => v === null || strId(v)))) || !isTeam(value.winner) ||
       ![1, 3, 5].includes(value.bestOfSets as number) ||
       ![4, 6].includes(value.gamesPerSet as number) ||
-      !Array.isArray(value.sets) || value.sets.length < 1 || value.sets.length > 5) return false;
+      !Array.isArray(value.sets) || value.sets.length < 1 || value.sets.length > 5 ||
+      (value.pointEvents !== undefined && decodePointEvents(value.pointEvents) === null)) return false;
   return value.sets.every(s => isObject(s) && validNumber(s.gamesA, 10000) &&
     validNumber(s.gamesB, 10000) && s.isCompleted === true && isTeam(s.winner) &&
     (s.isMatchTieBreak === undefined || typeof s.isMatchTieBreak === 'boolean') &&
@@ -63,7 +66,7 @@ export function loadMatchHistory(storage: CheckpointStorage): ArchivedMatch[] {
 export function archiveCompletedMatch(
   storage: CheckpointStorage, id: string, settings: MatchSettings,
   snapshot: PadelMatchSnapshot, durationSeconds: number,
-  completedAt = Date.now(),
+  completedAt = Date.now(), pointEvents?: PointEvent[],
 ): 'saved' | 'exists' | 'notFinished' | 'unavailable' {
   if (!snapshot.matchWinner || !snapshot.completedSets.length) return 'notFinished';
   const record: ArchivedMatch = {
@@ -75,6 +78,7 @@ export function archiveCompletedMatch(
     sets: snapshot.completedSets.map(s => ({ ...s })),
     bestOfSets: settings.bestOfSets,
     gamesPerSet: settings.gamesPerSet === 4 ? 4 : 6,
+    ...(pointEvents !== undefined ? { pointEvents: pointEvents.map(e => ({ ...e })) } : {}),
   };
   if (!isArchivedMatch(record)) return 'unavailable';
   try {

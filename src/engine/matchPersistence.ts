@@ -1,5 +1,6 @@
 import type { MatchSettings, PadelMatchSnapshot, Team } from '../types/padel';
 import type { MatchStoreState } from './padelMatchStore';
+import { decodePointEvents } from './matchPointAnalytics';
 
 export const CHECKPOINT_KEY = 'padel_active_match_v1';
 export const CHECKPOINT_VERSION = 1;
@@ -65,7 +66,10 @@ export function decodeCheckpoint(raw: string | null): MatchCheckpoint | null {
     if (!record(data) || data.version !== CHECKPOINT_VERSION || !integer(data.savedAt, 1, 9e15) ||
       !validSettings(data.settings) || !record(data.state) || !validSnapshot(data.state.snapshot) ||
       !Array.isArray(data.state.history) || data.state.history.length > 50000 ||
-      !data.state.history.every(validSnapshot) || !validRuntime(data.runtime)) return null;
+      !data.state.history.every(validSnapshot) || !validRuntime(data.runtime) ||
+      (data.state.pointEvents !== undefined && decodePointEvents(data.state.pointEvents) === null) ||
+      (data.state.pointTrackingComplete !== undefined && typeof data.state.pointTrackingComplete !== 'boolean') ||
+      (data.state.pointTrackingComplete === true && data.state.pointEvents === undefined)) return null;
     return data as unknown as MatchCheckpoint;
   } catch { return null; }
 }

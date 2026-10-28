@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CalendarDays, Clock3, Trash2, Trophy, AlertTriangle, Download, Search, RotateCcw } from 'lucide-react';
 import { ArchivedMatch, loadMatchHistory, removeArchivedMatch } from '../engine/matchHistory';
+import { MatchPointAnalyticsPanel } from './MatchPointAnalyticsPanel';
 import { InterruptedMatch, loadInterruptedMatches, removeInterruptedMatch } from '../engine/matchInterrupted';
 import { readPlayerDirectory } from '../engine/playerDirectory';
 import { EMPTY_HISTORY_FILTERS, type HistoryFilters, filterFinishedMatches, filterInterruptedMatches, exportHistoryCsv } from '../engine/matchHistoryAdvanced';
@@ -153,6 +154,7 @@ export const MatchHistoryScreen: React.FC<Props> = ({ onBack, onResumeInterrupte
             <div className="flex justify-center flex-wrap gap-2 text-sm font-bold">{item.sets.map((s, i) => <span key={i} className="rounded-lg bg-slate-800 px-3 py-2">Set {i + 1}: {setLabel(s)}</span>)}</div>
             <button type="button" onClick={() => setOpened(opened === item.id ? null : item.id)} className="text-sm font-bold text-cyan-300 underline underline-offset-4">{opened === item.id ? 'Nascondi dettagli' : 'Dettagli e giocatori'}</button>
             {opened === item.id && <div className="grid gap-2 sm:grid-cols-2 text-sm text-slate-300 border-t border-slate-700 pt-3"><div><strong className="text-[#CCFF00]">{item.teamAName}</strong><p>{item.players[0]} · {item.players[1]}</p></div><div><strong className="text-cyan-300">{item.teamBName}</strong><p>{item.players[2]} · {item.players[3]}</p></div><p>Formato: al meglio di {item.bestOfSets} set · {item.gamesPerSet} game</p></div>}
+            {opened === item.id && <MatchPointAnalyticsPanel pointEvents={item.pointEvents} teamAName={item.teamAName} teamBName={item.teamBName} />}
           </article>
         ))}
         {section === 'interrupted' && !interrupted.length && <div className="rounded-xl border border-slate-700 bg-slate-900 p-7 text-center text-slate-300">Nessuna partita interrotta archiviata. Puoi interrompere una partita dal riepilogo senza assegnare un vincitore.</div>}

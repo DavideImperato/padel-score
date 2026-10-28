@@ -1,10 +1,13 @@
 import React from 'react';
 import { Trophy, Clock, ArrowLeft, RotateCcw, Award, CheckCircle2, Sparkles, Eye } from 'lucide-react';
 import { MatchSettings, PadelMatchSnapshot, SetScore, Team } from '../types/padel';
+import { MatchPointAnalyticsPanel } from './MatchPointAnalyticsPanel';
+import type { PointEvent } from '../engine/matchPointAnalytics';
 
 interface MatchSummaryScreenProps {
   snapshot: PadelMatchSnapshot;
   settings: MatchSettings;
+  pointEvents?: PointEvent[];
   matchDurationFormatted: string;
   onGoToSetup: () => void;
   archiveError?: string | null;
@@ -14,6 +17,7 @@ interface MatchSummaryScreenProps {
 export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
   snapshot,
   settings,
+  pointEvents,
   matchDurationFormatted,
   onGoToSetup,
   archiveError,
@@ -163,6 +167,8 @@ export const MatchSummaryScreen: React.FC<MatchSummaryScreenProps> = ({
             <span>Tempo Totale di Gioco: <strong className="text-white">{matchDurationFormatted}</strong></span>
           </div>
         </div>
+
+        <MatchPointAnalyticsPanel pointEvents={pointEvents} teamAName={settings.teamAName} teamBName={settings.teamBName} />
 
         {/* DETAILED SETS SCORE TABLE */}
         <div className="w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl backdrop-blur-sm space-y-4">

@@ -8,10 +8,13 @@ import {
   ScoringEvent,
   ScoringResult,
 } from './padelScoringEngine';
+import { makePointEvent, decodePointEvents, MAX_POINT_EVENTS, type PointEvent } from './matchPointAnalytics';
 
 export interface MatchStoreState {
   snapshot: PadelMatchSnapshot;
   history: PadelMatchSnapshot[];
+  pointEvents?: PointEvent[];
+  pointTrackingComplete?: boolean;
 }
 
 export type ScoreEventListener = (event: ScoringEvent, nextSnapshot: PadelMatchSnapshot) => void;
@@ -36,6 +39,8 @@ export class PadelMatchStore {
     this.state = {
       snapshot: initialSnapshot ? { ...initialSnapshot } : createInitialSnapshot(firstServerId),
       history: [],
+      pointEvents: [],
+      pointTrackingComplete: true,
     };
   }
 
@@ -45,6 +50,8 @@ export class PadelMatchStore {
     this.state = {
       snapshot: { ...saved.snapshot, completedSets: [...saved.snapshot.completedSets] },
       history: saved.history.map(s => ({ ...s, completedSets: [...s.completedSets] })),
+      pointEvents: decodePointEvents(saved.pointEvents) ?? [],
+      pointTrackingComplete: saved.pointTrackingComplete === true && decodePointEvents(saved.pointEvents) !== null,
     };
     this.notify();
   }
@@ -100,7 +107,7 @@ export class PadelMatchStore {
    * Garantisce che chiamate sequenziali rapide non perdano punti
    * prima che React o l'interfaccia eseguano un nuovo render.
    */
-  public addPoint(team: Team): ScoringResult | null {
+  public addPoint(team: Team, elapsedSeconds = 0): ScoringResult | null {
     if (this.blocked) return null;
     if (this.state.snapshot.matchWinner) return null;
 
@@ -109,9 +116,15 @@ export class PadelMatchStore {
     if (!result) return null;
 
     const { nextSnapshot, event } = result;
+    const depth = this.state.history.length + 1;
+    const existing = this.state.pointEvents ?? [];
+    const complete = this.state.pointTrackingComplete === true && existing.length < MAX_POINT_EVENTS;
+    const seconds = Math.max(existing.at(-1)?.elapsedSeconds ?? 0, Number.isSafeInteger(elapsedSeconds) && elapsedSeconds >= 0 ? elapsedSeconds : 0);
     this.state = {
       snapshot: nextSnapshot,
       history: [...this.state.history, currentSnapshot],
+      pointEvents: complete ? [...existing, makePointEvent(existing.length + 1, depth, seconds, team, currentSnapshot, nextSnapshot, this.settings)] : [],
+      pointTrackingComplete: complete,
     };
 
     this.notify();
@@ -127,9 +140,12 @@ export class PadelMatchStore {
     if (this.state.history.length === 0) return null;
 
     const prevSnapshot = this.state.history[this.state.history.length - 1];
+    const events = this.state.pointEvents ?? [];
     this.state = {
+      ...this.state,
       snapshot: prevSnapshot,
       history: this.state.history.slice(0, -1),
+      pointEvents: events.length && events[events.length - 1].undoDepth === this.state.history.length ? events.slice(0, -1) : events,
     };
 
     this.notify();
@@ -149,6 +165,7 @@ export class PadelMatchStore {
     const nextTeam = getTeamForPlayerId(nextPlayerId);
 
     this.state = {
+      ...this.state,
       history: [...this.state.history, current],
       snapshot: {
         ...current,
@@ -175,6 +192,8 @@ export class PadelMatchStore {
     this.state = {
       snapshot: initialSnap,
       history: [],
+      pointEvents: [],
+      pointTrackingComplete: true,
     };
 
     this.notify();
@@ -194,6 +213,8 @@ export class PadelMatchStore {
     this.state = {
       snapshot: initialSnap,
       history: [],
+      pointEvents: [],
+      pointTrackingComplete: true,
     };
 
     this.notify();

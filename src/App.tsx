@@ -450,7 +450,7 @@ export default function App() {
     if (currentViewRef.current !== 'scoreboard') return;
     if (isAnyModalOpenRef.current) return;
     padelAudio.unlockAudio();
-    store.addPoint(scoringTeam);
+    store.addPoint(scoringTeam, runtimeRef.current.matchSeconds);
   }, [store]);
 
   // Undo transazionale: annulla impulsi pendenti e ripristina lo stato precedente
@@ -737,6 +737,7 @@ export default function App() {
       <MatchSummaryScreen
         snapshot={snapshot}
         settings={settings}
+        pointEvents={store.getState().pointTrackingComplete ? store.getState().pointEvents : undefined}
         matchDurationFormatted={formatMatchTime(matchSeconds)}
         archiveError={summaryArchiveError}
         onGoToSetup={() => {
@@ -754,7 +755,8 @@ export default function App() {
           }
           if (snapshot.matchWinner && typeof window !== 'undefined') {
             const status = archiveCompletedMatch(window.localStorage, archiveMatchIdRef.current,
-              store.getSettings(), snapshot, matchSeconds);
+              store.getSettings(), snapshot, matchSeconds, Date.now(),
+              store.getState().pointTrackingComplete ? store.getState().pointEvents : undefined);
             if (status !== 'saved' && status !== 'exists') {
               window.alert('Non è stato possibile salvare la partita nello storico. Il riepilogo rimane disponibile.');
               return;
