@@ -265,6 +265,10 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
           child: SingleChildScrollView(child: _filters()),
         ),
         Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(
+        // Ogni scheda ha uno stato FutureBuilder distinto: passando da
+        // Concluse a Interrotte, il vecchio snapshot non deve essere
+        // interpretato come un record di tipo diverso durante il caricamento.
+        key: ValueKey<bool>(_showInterrupted),
         future: _showInterrupted ? _interrupted : _history,
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());

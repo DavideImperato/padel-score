@@ -2,7 +2,7 @@ name: padel_scorebot
 description: "Tabellone segnapunti Padel 100% offline stile ScoreBot con supporto telecomando Bluetooth, TTS in italiano e Wakelock."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.1.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -15,6 +15,11 @@ dependencies:
   shared_preferences: ^2.5.2
   wakelock_plus: ^1.2.8
   volume_controller: ^2.0.8
+  # Monitoraggio opzionale del volume su iOS (nessun bridge personalizzato).
+  perfect_volume_control: ^1.0.6
+  # Sonda iOS DEBUG isolata: NON usare nel segnapunti di produzione.
+  padel_volume_diagnostic:
+    path: packages/padel_volume_diagnostic
   # 11.x evita i nuovi requisiti AGP/Kotlin introdotti dalla 12.x.
   share_plus: ">=11.1.0 <12.0.0"
   package_info_plus: 9.0.1
@@ -35,3 +40,10 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon.png
+
+# Patch Android locale: sorgenti iOS/Dart originali conservati.
+dependency_overrides:
+  volume_controller:
+    path: packages/volume_controller
+  perfect_volume_control:
+    path: packages/perfect_volume_control

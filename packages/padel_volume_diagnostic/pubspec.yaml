@@ -1,0 +1,15 @@
+name: padel_volume_diagnostic
+version: 0.0.1
+publish_to: none
+description: Debug-only iOS volume write diagnostic for Padel Score Board.
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: PadelVolumeDiagnosticPlugin

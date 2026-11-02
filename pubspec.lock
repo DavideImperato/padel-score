@@ -352,6 +352,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.2.1"
+  padel_volume_diagnostic:
+    dependency: "direct main"
+    description:
+      path: "packages/padel_volume_diagnostic"
+      relative: true
+    source: path
+    version: "0.0.1"
   path:
     dependency: transitive
     description:
@@ -408,6 +415,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.0"
+  perfect_volume_control:
+    dependency: "direct main"
+    description:
+      path: "packages/perfect_volume_control"
+      relative: true
+    source: path
+    version: "1.0.6"
   petitparser:
     dependency: transitive
     description:
@@ -688,10 +702,9 @@ packages:
   volume_controller:
     dependency: "direct main"
     description:
-      name: volume_controller
-      sha256: c71d4c62631305df63b72da79089e078af2659649301807fa746088f365cb48e
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/volume_controller"
+      relative: true
+    source: path
     version: "2.0.8"
   wakelock_plus:
     dependency: "direct main"

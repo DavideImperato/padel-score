@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/padel_match_state.dart';
 import '../providers/padel_score_provider.dart';
 import '../services/bluetooth_key_service.dart';
+import '../services/android_remote_buttons.dart';
+import '../services/volume_remote_input.dart';
+import '../services/app_preferences.dart';
+import 'package:padel_volume_diagnostic/padel_volume_diagnostic.dart';
 import 'match_setup_screen.dart';
 import 'match_result_statistics_screen.dart';
 import '../services/app_orientation.dart';
@@ -19,8 +24,224 @@ class LandscapeScoreboardScreen extends StatefulWidget {
   State<LandscapeScoreboardScreen> createState() => _LandscapeScoreboardScreenState();
 }
 
-class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
+class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen>
+    with WidgetsBindingObserver {
   late BluetoothKeyService _keyService;
+  late final VolumeRemoteInput _volumeRemote;
+  late final AndroidRemoteButtons _androidRemote;
+  bool get _remoteServiceActive =>
+      Platform.isAndroid ? _androidRemote.isActive : _volumeRemote.isActive;
+  bool _volumeRemoteActive = false;
+  bool _volumeRemoteBusy = false;
+  bool _volumeRemoteForeground = true;
+
+  // La partita parte con telecomando attivo in Debug, salvo esplicito OFF.
+  bool _wantsRemoteOn = true;
+
+  Future<void> _setRemoteEnabled(bool enabled, {bool notify = true}) async {
+    if (_volumeRemoteBusy || !mounted || _provider.isMatchOver) return;
+    _wantsRemoteOn = enabled;
+    if (!enabled) {
+      _stopVolumeRemote();
+      return;
+    }
+    if (!(Platform.isIOS || Platform.isAndroid) || !_volumeRemoteForeground) return;
+
+    setState(() => _volumeRemoteBusy = true);
+    try {
+      final selected = context.read<AppPreferences>().remoteVolumePreset;
+      final activated = Platform.isAndroid
+          ? await _androidRemote.activate()
+          : await _volumeRemote.activate(
+              preferredVolume: selected.systemVolume,
+            );
+      if (activated && Platform.isAndroid) {
+        // Regola la voce di sistema senza creare punti fantasma.
+        await _androidRemote.setMusicVolume(selected.systemVolume);
+      }
+      if (!mounted) return;
+      if (!activated || !_volumeRemoteForeground || _provider.isMatchOver) {
+        _volumeRemote.deactivate();
+        if (Platform.isAndroid) await _androidRemote.deactivate();
+        _wantsRemoteOn = false;
+      }
+      final active = _remoteServiceActive;
+      debugPrint('[ScoreboardRemote] Attivazione completata: $active; '
+          'preset=${selected.label} (${selected.systemVolume})');
+      setState(() => _volumeRemoteActive = active);
+      if (notify && !active) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Impossibile impostare il volume del telecomando. '
+              'La modalita rimane disattivata.'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _volumeRemoteBusy = false);
+    }
+  }
+
+  void _stopVolumeRemote() {
+    _volumeRemote.deactivate();
+    if (Platform.isAndroid) unawaited(_androidRemote.deactivate());
+    _keyService.cancelPendingSequence();
+    if (mounted) setState(() => _volumeRemoteActive = false);
+  }
+
+  Future<void> _setPresetWhileRemoteOff(RemoteVolumePreset selected) async {
+    if (!mounted || (Platform.isIOS && _volumeRemoteActive) || _volumeRemoteBusy) return;
+    setState(() => _volumeRemoteBusy = true);
+    try {
+      final prefs = context.read<AppPreferences>();
+      await prefs.setRemoteVolumePreset(selected);
+      if (Platform.isAndroid) {
+        final confirmed = await _androidRemote.setMusicVolume(selected.systemVolume);
+        if (mounted && !confirmed) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Impossibile regolare il volume multimediale Android.'),
+          ));
+        }
+      } else if (Platform.isIOS) {
+        // Cambiare il volume SOLO a telecomando spento evita punti fantasma.
+        bool confirmed = false;
+        for (var attempt = 0; attempt < 3; attempt++) {
+          try {
+            final result = await PadelVolumeDiagnostic.write(
+              selected.systemVolume,
+            );
+            if (result.confirmed) {
+              confirmed = true;
+              break;
+            }
+          } catch (error) {
+            debugPrint('[ScoreboardRemote] Preset: $error');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        }
+        if (mounted && !confirmed) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Volume non confermato da iOS. '
+                'Il preset resta selezionato per la prossima attivazione.'),
+          ));
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _volumeRemoteBusy = false);
+    }
+  }
+
+  Future<void> _showAudioRemoteDialog() async {
+    if (!mounted) return;
+    // Non eseguire sequenze incomplete mentre il pannello e' aperto.
+    _keyService.cancelPendingSequence();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refreshDialog) {
+          final muted = _provider.isMuted;
+          final selected = context.read<AppPreferences>().remoteVolumePreset;
+          final remoteAllowed = (Platform.isIOS || Platform.isAndroid) &&
+              !_provider.isMatchOver;
+          return AlertDialog(
+            title: const Text('Audio e telecomando'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Voce arbitro'),
+                    value: !muted,
+                    onChanged: (enabled) {
+                      _provider.toggleMute();
+                      refreshDialog(() {});
+                    },
+                  ),
+                  const Divider(),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Telecomando Bluetooth'),
+                    subtitle: Text(Platform.isAndroid
+                        ? 'Tasti Volume + / −: 1=A, 2=B, 3=Undo, 4=battitore'
+                        : 'Controlli tramite pulsanti volume'),
+                    value: _volumeRemoteActive,
+                    onChanged: remoteAllowed && !_volumeRemoteBusy
+                        ? (enabled) async {
+                            await _setRemoteEnabled(enabled);
+                            if (dialogContext.mounted) refreshDialog(() {});
+                          }
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(Platform.isAndroid
+                      ? 'Volume audio del dispositivo'
+                      : 'Volume del telecomando',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 9),
+                  SegmentedButton<RemoteVolumePreset>(
+                    showSelectedIcon: false,
+                    segments: RemoteVolumePreset.values.map((level) =>
+                      ButtonSegment<RemoteVolumePreset>(
+                        value: level,
+                        label: Text(level.label),
+                      ),
+                    ).toList(),
+                    selected: {selected},
+                    onSelectionChanged: !remoteAllowed ||
+                        (Platform.isIOS && _volumeRemoteActive) || _volumeRemoteBusy
+                        ? null
+                        : (values) async {
+                            if (values.isEmpty) return;
+                            await _setPresetWhileRemoteOff(values.first);
+                            if (dialogContext.mounted) refreshDialog(() {});
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(Platform.isAndroid
+                      ? 'I tasti cambiano il punteggio solo con telecomando attivo; '
+                        'a telecomando spento regolano il volume normalmente.'
+                      : (_volumeRemoteActive
+                          ? 'Disattiva il telecomando per cambiare volume.'
+                          : 'La scelta verra applicata alla prossima attivazione.'),
+                    style: Theme.of(dialogContext).textTheme.bodySmall),
+
+],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Chiudi'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _volumeRemoteForeground = state == AppLifecycleState.resumed;
+    debugPrint('[ScoreboardRemote] Lifecycle: ${state.name}; '
+        'listener attivo=$_remoteServiceActive');
+    if (state == AppLifecycleState.resumed && _wantsRemoteOn &&
+        !_remoteServiceActive && !_volumeRemoteBusy) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _wantsRemoteOn && !_remoteServiceActive) {
+          unawaited(_setRemoteEnabled(true, notify: false));
+        }
+      });
+    }
+    // "inactive" e' temporaneo su iOS (es. Centro di Controllo):
+    // non cancellare la sottoscrizione. Blocca solo l'assegnazione dei punti.
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _stopVolumeRemote();
+    }
+  }
+
 
   // Cronometro durata del match
   bool _isArchiving = false;
@@ -34,6 +255,12 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
 
   void _onProviderChanged() {
     if (!mounted) return;
+    if (_provider.isMatchOver && _remoteServiceActive) {
+      _volumeRemote.deactivate();
+      if (Platform.isAndroid) unawaited(_androidRemote.deactivate());
+      _keyService.cancelPendingSequence();
+      _volumeRemoteActive = false;
+    }
     // Pausa/riprendi impartiti dal Watch aggiornano anche il timer della UI.
     if (_isTimerRunning != _provider.isTimerRunning) {
       setState(() => _isTimerRunning = _provider.isTimerRunning);
@@ -127,12 +354,59 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         HapticFeedback.mediumImpact();
         provider.undo();
       },
+      onAnnounceServer: () {
+        provider.announceCurrentServer();
+      },
+      // L'handler globale non agisce mentre un dialogo copre il tabellone,
+      // durante l'archiviazione o dopo la conclusione dell'incontro.
+      isInputEnabled: () => mounted &&
+          !_isArchiving &&
+          !_watchExitScheduled &&
+          !provider.isMatchOver &&
+          ModalRoute.of(context)?.isCurrent == true,
       onFeedback: (type, label) {
         _showRemoteFeedback(type, label);
       },
     );
 
+    _volumeRemote = VolumeRemoteInput(
+      onImpulse: _keyService.registerExternalVolumeImpulse,
+      onUnavailable: () {
+        if (!mounted) return;
+        _keyService.cancelPendingSequence();
+        _wantsRemoteOn = false;
+        setState(() => _volumeRemoteActive = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Monitoraggio del volume interrotto. Puoi riattivarlo dal menu.'),
+        ));
+      },
+      canAcceptInput: () {
+        if (!mounted) return false;
+        final routeCurrent = ModalRoute.of(context)?.isCurrent == true;
+        final allowed = _volumeRemoteForeground && !_isArchiving &&
+            !_watchExitScheduled && !_provider.isMatchOver && routeCurrent;
+        if (!allowed) {
+          debugPrint('[ScoreboardRemote] Evento bloccato: '
+              'foreground=$_volumeRemoteForeground, '
+              'archiviazione=$_isArchiving, uscita=$_watchExitScheduled, '
+              'matchOver=${_provider.isMatchOver}, routeCurrent=$routeCurrent');
+        }
+        return allowed;
+      },
+    );
+    _androidRemote = AndroidRemoteButtons(
+      onImpulse: _keyService.registerExternalVolumeImpulse,
+    );
+    WidgetsBinding.instance.addObserver(this);
+
     _keyService.init();
+    // Auto ON all'ingresso in partita, dopo il primo frame della schermata.
+    // La scrittura iniziale imposta il preset senza generare punti.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _wantsRemoteOn && !_provider.isMatchOver) {
+        unawaited(_setRemoteEnabled(true, notify: true));
+      }
+    });
 
     // 3. Avvio cronometro partita
     _startMatchTimer();
@@ -238,6 +512,9 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
     _matchTimer?.cancel();
     _breakTimer?.cancel();
     _feedbackDismissTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _volumeRemote.dispose();
+    _androidRemote.dispose();
     _keyService.dispose();
     _provider.removeListener(_onProviderChanged);
     // Il ritorno al verticale è gestito dalla Home: il setup resta landscape.
@@ -485,8 +762,10 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
                 itemBuilder: (context) => [
                   const PopupMenuItem(value: 'serve', child: Text('Cambia battitore')),
                   const PopupMenuItem(value: 'sides', child: Text('Cambia campo · Pausa 90s')),
-                  PopupMenuItem(value: 'mute',
-                    child: Text(provider.isMuted ? 'Attiva voce' : 'Disattiva voce')),
+                  const PopupMenuItem(
+                    value: 'audio_remote',
+                    child: Text('Audio e telecomando'),
+                  ),
                   const PopupMenuDivider(),
                   if (provider.isMatchOver)
                     const PopupMenuItem(value: 'result', child: Text('Riepilogo finale')),
@@ -519,8 +798,8 @@ class _LandscapeScoreboardScreenState extends State<LandscapeScoreboardScreen> {
         provider.switchSides();
         _startBreakTimer(duration: 90);
         return;
-      case 'mute':
-        provider.toggleMute();
+      case 'audio_remote':
+        unawaited(_showAudioRemoteDialog());
         return;
       case 'interrupt':
         unawaited(_archiveInterruptedMatch(provider));

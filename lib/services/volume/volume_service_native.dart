@@ -1,14 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:volume_controller/volume_controller.dart';
+
 import 'volume_service.dart';
 
-/// Implementazione nativa per Android e iOS (APK / TestFlight).
-/// Ascolta i cambiamenti di volume hardware generati sia dai pulsanti fisici
-/// del dispositivo sia dai telecomandi selfie Bluetooth che inviano impulsi Volume Up / Down.
+/// Listener volume preesistente riservato ad Android.
+/// iOS non utilizza piu' bridge KVO personalizzati.
 VolumeService createVolumeService() => VolumeServiceNative();
 
 class VolumeServiceNative implements VolumeService {
-  double? _lastVolume;
+  double? _lastAndroidVolume;
   bool _isListening = false;
 
   @override
@@ -17,43 +19,44 @@ class VolumeServiceNative implements VolumeService {
     required void Function() onVolumeDown,
   }) {
     if (kIsWeb) return;
+    dispose();
+    _isListening = true;
 
+    // iOS: il vecchio bridge KVO non viene piu' avviato.
+    // Il volume e' opzionalmente osservato dal plugin in VolumeRemoteInput.
+    if (Platform.isIOS) return;
+
+    // Percorso Android preesistente: non modificato in questa fase Apple.
     try {
-      _isListening = true;
-
-      // Nasconde la barra di volume di sistema per non oscurare il tabellone
       VolumeController().showSystemUI = false;
-
-      // Legge il volume iniziale di riferimento
       VolumeController().getVolume().then((v) {
-        _lastVolume = v;
+        if (_isListening) _lastAndroidVolume = v;
       }).catchError((_) {});
-
-      // Ascolta le variazioni del volume hardware del dispositivo
       VolumeController().listener((volume) {
         if (!_isListening) return;
-
-        if (_lastVolume != null) {
-          if (volume > _lastVolume!) {
+        if (_lastAndroidVolume != null) {
+          if (volume > _lastAndroidVolume!) {
             debugPrint('[VolumeServiceNative] Hardware Volume UP rilevato ($volume)');
             onVolumeUp();
-          } else if (volume < _lastVolume!) {
+          } else if (volume < _lastAndroidVolume!) {
             debugPrint('[VolumeServiceNative] Hardware Volume DOWN rilevato ($volume)');
             onVolumeDown();
           }
         }
-        _lastVolume = volume;
+        _lastAndroidVolume = volume;
       });
-    } catch (e) {
-      debugPrint('[VolumeServiceNative] Avviso inizializzazione VolumeController: $e');
+    } catch (error) {
+      debugPrint('[VolumeServiceNative] Avviso inizializzazione VolumeController: $error');
     }
   }
 
   @override
   void dispose() {
     _isListening = false;
-    try {
-      VolumeController().removeListener();
-    } catch (_) {}
+    if (!Platform.isIOS) {
+      try {
+        VolumeController().removeListener();
+      } catch (_) {}
+    }
   }
 }

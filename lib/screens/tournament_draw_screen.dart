@@ -92,7 +92,9 @@ class _TournamentDrawScreenState extends State<TournamentDrawScreen> {
           if (!played) ListTile(
             leading: const Icon(Icons.play_circle_fill, color: _lime),
             title: const Text('Gioca partita'),
-            subtitle: const Text('Segnapunti con iPhone, telecomando e Apple Watch'),
+            subtitle: Text(Theme.of(context).platform == TargetPlatform.android
+                ? 'Segnapunti Android con telecomando Bluetooth'
+                : 'Segnapunti con iPhone, telecomando e Apple Watch'),
             onTap: () => Navigator.of(sheet).pop('play')),
           ListTile(
             leading: const Icon(Icons.edit_note, color: _cyan),

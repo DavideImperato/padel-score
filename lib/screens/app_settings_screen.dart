@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_preferences.dart';
@@ -69,29 +70,35 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             },
           ),
           const Divider(height: 26),
-          const Text('APPLE WATCH', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Theme(
+          if (Platform.isIOS) const Text('APPLE WATCH', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (Platform.isIOS) const SizedBox(height: 10),
+          if (Platform.isIOS) Theme(
             data: ThemeData.dark().copyWith(
               colorScheme: const ColorScheme.dark(primary: Color(0xFFCAFF00)),
             ),
             child: const WatchLinkCard(),
           ),
-          const SizedBox(height: 9),
-          Text('L’abbinamento del Watch si effettua dall’app Watch di iPhone; qui puoi verificare la connessione.',
+          if (Platform.isIOS) const SizedBox(height: 9),
+          if (Platform.isIOS) Text('L’abbinamento del Watch si effettua dall’app Watch di iPhone; qui puoi verificare la connessione.',
             style: TextStyle(fontSize: 12,
               color: dark ? const Color(0xFFB6C2D6) : const Color(0xFF546578))),
           const Divider(height: 32),
           const Text('INFORMAZIONI', style: TextStyle(fontWeight: FontWeight.bold)),
-          const ListTile(leading: Icon(Icons.info_outline),
+          ListTile(leading: const Icon(Icons.info_outline),
             title: Text('Padel Score Board'),
-            subtitle: Text('Segnapunti offline per iPhone, iPad e Apple Watch')),
+            subtitle: Text(Platform.isAndroid
+                ? 'Segnapunti offline per smartphone e tablet Android'
+                : 'Segnapunti offline per iPhone, iPad e Apple Watch')),
           const SizedBox(height: 6),
           const AppAboutFooter(),
           const SizedBox(height: 10),
-          const ListTile(leading: Icon(Icons.star_border),
-            title: Text('Lascia una recensione sull’App Store'),
-            subtitle: Text('Il collegamento sarà attivato con l’ID pubblico dell’app.'),
+          ListTile(leading: const Icon(Icons.star_border),
+            title: Text(Platform.isAndroid
+                ? 'Lascia una recensione su Google Play'
+                : 'Lascia una recensione sull’App Store'),
+            subtitle: Text(Platform.isAndroid
+                ? 'Il collegamento sarà attivato dopo la pubblicazione.'
+                : 'Il collegamento sarà attivato con l’ID pubblico dell’app.'),
             enabled: false),
           const SizedBox(height: 16),
         ]),
