@@ -1,7 +1,8 @@
 import 'volume_service_stub.dart'
     if (dart.library.io) 'volume_service_native.dart';
 
-/// Interfaccia astratta per il monitoraggio dei tasti volume hardware su piattaforme native (iOS/Android).
+/// Compatibilita' del listener volume preesistente, ora impiegato su Android.
+/// iOS usa VolumeRemoteInput su attivazione esplicita durante il match.
 /// Su Web l'implementazione è uno stub no-op sicuro (zero errori o crash a tempo di compilazione ed esecuzione).
 abstract class VolumeService {
   static VolumeService? _instance;

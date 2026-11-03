@@ -32,7 +32,7 @@ class TtsService {
           IosTextToSpeechAudioCategoryOptions.mixWithOthers,
           IosTextToSpeechAudioCategoryOptions.duckOthers,
         ],
-        IosTextToSpeechAudioMode.voicePrompt,
+        IosTextToSpeechAudioMode.defaultMode,
       );
 
       await _flutterTts.awaitSpeakCompletion(true);

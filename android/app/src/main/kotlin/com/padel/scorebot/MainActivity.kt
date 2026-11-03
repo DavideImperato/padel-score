@@ -10,11 +10,13 @@ import kotlin.math.roundToInt
 
 /** I tasti volume diventano impulsi SOLO durante il match e con telecomando ON. */
 class MainActivity : FlutterActivity() {
+    private var wearPhoneBridge: WearPhoneBridge? = null
     private var captureVolume = false
     private var remoteChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        wearPhoneBridge = WearPhoneBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         val channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "padel_score_board/android_remote_buttons"
@@ -69,6 +71,8 @@ class MainActivity : FlutterActivity() {
         captureVolume = false
         remoteChannel?.setMethodCallHandler(null)
         remoteChannel = null
+        wearPhoneBridge?.dispose()
+        wearPhoneBridge = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 }

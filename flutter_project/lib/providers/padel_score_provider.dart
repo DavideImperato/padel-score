@@ -1064,6 +1064,13 @@ class PadelScoreProvider extends ChangeNotifier {
     _ttsService.speak('Partita resettata. Serve $currentServingPlayerName.');
   }
 
+  /// Annuncia il battitore corrente senza cambiare rotazione o punteggio.
+  /// Richiamato dal quarto clic di un telecomando quando il match è attivo.
+  void announceCurrentServer() {
+    if (!_activeCheckpoint || _finalizingMatch || isMatchOver) return;
+    _ttsService.speak('Serve $currentServingPlayerName.');
+  }
+
   void toggleServingTeam() {
     if (!_activeCheckpoint || _finalizingMatch || isMatchOver) return;
     _history.add(_currentSnapshot);
