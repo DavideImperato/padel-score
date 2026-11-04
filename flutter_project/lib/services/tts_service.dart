@@ -25,15 +25,14 @@ class TtsService {
       await _flutterTts.setVolume(1.0);     // Volume pieno per udibilità a 15 metri
       await _flutterTts.setPitch(1.0);      // Tono naturale umano
 
-      // Configurazione categoria audio iOS (Duck/Mix)
-      await _flutterTts.setIosAudioCategory(
-        IosTextToSpeechAudioCategory.playback,
-        [
-          IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-          IosTextToSpeechAudioCategoryOptions.duckOthers,
-        ],
-        IosTextToSpeechAudioMode.defaultMode,
-      );
+      // Fase 8B V5B: non disattivare AVAudioSession a ogni avvio.
+      // La V5A invocava setSharedInstance(false), che nel plugin
+      // flutter_tts richiama AVAudioSession.setActive(false).
+      // Su iOS lasciamo la gestione della sessione al sintetizzatore,
+      // evitando setSharedInstance e setIosAudioCategory in init().
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        debugPrint('[TtsService] iOS V5B: sessione audio non modificata in init');
+      }
 
       await _flutterTts.awaitSpeakCompletion(true);
       _isInitialized = true;

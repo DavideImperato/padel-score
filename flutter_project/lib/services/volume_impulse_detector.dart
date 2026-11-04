@@ -1,19 +1,39 @@
-/// Usa solo i cambiamenti reali del volume per generare impulsi opzionali.
-/// Non identifica chi ha premuto (telecomando, iPhone o Centro di controllo).
-/// Non simula pressioni quando il volume non cambia agli estremi.
+/// Trasforma gli incrementi osservati del volume iOS in impulsi del telecomando.
+///
+/// iOS non fornisce a questa classe un evento hardware per ciascun clic:
+/// STREAM e polling possono accorpare piu' cambiamenti in una sola lettura.
+/// Sul telefono di prova si osservano incrementi da 0.05; su altri dispositivi
+/// possono arrivare incrementi da 1/16. Riconosciamo entrambe le scale.
+/// Non si possono recuperare clic che iOS non rappresenta nel volume.
 class VolumeImpulseDetector {
+  static const List<double> _possibleSteps = <double>[0.05, 1.0 / 16.0];
+  static const double _tolerance = 0.009;
+  static const int _maxGroupedClicks = 4;
   double? _previous;
 
   void reset([double? baseline]) => _previous = baseline;
 
-  bool accept(double volume) {
-    if (!volume.isFinite || volume < 0 || volume > 1) return false;
+  int countSteps(double volume) {
+    if (!volume.isFinite || volume < 0 || volume > 1) return 0;
     final previous = _previous;
     _previous = volume;
-    if (previous == null) return false;
+    if (previous == null) return 0;
+
     final delta = (volume - previous).abs();
-    // Un passo iOS standard e' comunemente circa 1/16; scartiamo
-    // fluttuazioni minuscole e grandi variazioni da slider/route audio.
-    return delta >= 0.018 && delta <= 0.16;
+    var bestCount = 0;
+    var bestError = double.infinity;
+    for (final step in _possibleSteps) {
+      for (var count = 1; count <= _maxGroupedClicks; count++) {
+        final error = (delta - count * step).abs();
+        if (error < bestError) {
+          bestError = error;
+          bestCount = count;
+        }
+      }
+    }
+    if (bestError > _tolerance) return 0;
+    return bestCount;
   }
+
+  bool accept(double volume) => countSteps(volume) > 0;
 }

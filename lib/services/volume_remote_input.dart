@@ -7,14 +7,19 @@ import 'package:padel_volume_diagnostic/padel_volume_diagnostic.dart';
 import 'package:perfect_volume_control/perfect_volume_control.dart';
 
 import 'volume_impulse_detector.dart';
-import 'volume_native_restore_guard.dart';
+import 'volume_gesture_accumulator.dart';
 
-/// Input telecomando volume iOS: listener persistente.
+/// Rilevazione volume iOS per telecomandi compatibili: percorso sperimentale.
+/// Letture periodiche tramite sonda nativa che legge outputVolume senza
+/// attivare AVAudioSession a ogni polling.
 ///
-/// Non intercetta i tasti prima del sistema: osserva il cambiamento di volume
-/// e tenta di riportarlo al livello scelto dall'utente. L'operazione non e'
-/// garantita su tutti i dispositivi. Il conteggio 1/2/3/4 rimane nel servizio
-/// BluetoothKeyService tramite RemoteClickSequence.
+/// A differenza della versione precedente, NON riscrive il volume dopo ogni
+/// pressione. Aspetta che il gesto sia terminato, poi ripristina il livello.
+/// Questo limita notifiche di ripristino che potevano essere interpretate
+/// come pressioni aggiuntive (ad esempio un punto A dopo Undo).
+///
+/// iOS espone variazioni del volume, non un evento hardware garantito per
+/// ogni clic del telecomando: il comportamento va provato sull'iPhone reale.
 class VolumeRemoteInput {
   VolumeRemoteInput({
     required this.onImpulse,
@@ -29,19 +34,47 @@ class VolumeRemoteInput {
   static const double _sameTolerance = 0.0005;
   static const double _restoreTolerance = 0.025;
 
+  // La finestra di riconoscimento iOS e' 650 ms: il ripristino parte
+  // dopo un silenzio maggiore, per evitare di spezzare clic multipli.
+  static const Duration _restoreAfterSilence = Duration(milliseconds: 1100);
+  static const Duration _ignoreRestoreEcho = Duration(milliseconds: 280);
+
+  // Con un target al 90% bastano due pressioni Volume Su per saturare il
+  // livello. Manteniamo quindi i preset entro un intervallo che consenta
+  // quattro passi standard in entrambe le direzioni.
+  static const double _minimumOperatingVolume = 0.35;
+  static const double _maximumOperatingVolume = 0.65;
+
   final VolumeImpulseDetector _detector = VolumeImpulseDetector();
+
+  // Per i telecomandi iOS, una variazione osservata non equivale sempre
+  // al numero di passi del volume: +0.10 puo' arrivare con una sola notifica.
+  // Attendiamo la fine del gesto e NON attribuiamo punti a sequenze anomale.
+  late final VolumeGestureAccumulator _volumeGestures =
+      VolumeGestureAccumulator(onGesture: (int count) {
+        if (!_active || _disposed || !canAcceptInput()) return;
+        debugPrint('[VolumeRemoteInput] GESTO CONFERMATO: $count evento/i');
+        // Il servizio storico interpreta questi impulsi nella sequenza iOS.
+        // Li consegniamo solo DOPO la pausa, tutti insieme; la quarta
+        // pressione non puo' piu' aprire un secondo gesto durante la raffica.
+        for (var i = 0; i < count; i++) {
+          if (!_active || _disposed || !canAcceptInput()) return;
+          onImpulse();
+        }
+      });
   StreamSubscription<double>? _stream;
   Timer? _debugPoll;
-  VolumeNativeRestoreGuard? _guard;
+  Timer? _delayedRestore;
 
   bool _active = false;
   bool _disposed = false;
   bool _polling = false;
   bool _writing = false;
-  bool _restoreQueued = false;
+  int? _writingGeneration;
   int _generation = 0;
   double? _preferredVolume;
   double? _lastSample;
+  DateTime? _ignoreSamplesUntil;
 
   bool get isActive => _active;
 
@@ -51,7 +84,6 @@ class VolumeRemoteInput {
 
     final generation = ++_generation;
     try {
-      // Una sola sottoscrizione per tutta la durata del tabellone.
       _stream ??= PerfectVolumeControl.stream.listen(
         (volume) => _receive(volume, 'STREAM'),
         onError: (Object error, StackTrace trace) {
@@ -64,51 +96,47 @@ class VolumeRemoteInput {
         },
       );
 
-      // Test Debug: manteniamo la UI di sistema normale, come nella sonda
-      // PadelVolumeDiagnostic che aveva confermato le scritture native.
-      // Non usiamo hideUI insieme al controllo MPVolumeView della sonda.
       PerfectVolumeControl.hideUI = false;
 
-      var initial = await PerfectVolumeControl.getVolume();
+      var initial = await PadelVolumeDiagnostic.read();
       if (_disposed || generation != _generation) return false;
       if (!initial.isFinite || initial < 0 || initial > 1) return false;
 
-      // Il preset arriva dal menu, non dal livello corrente dell'iPhone.
-      // Durante la scrittura iniziale il listener e' ancora inattivo,
-      // percio' il ricentramento NON genera un punto fantasma.
-      final target = preferredVolume ?? initial;
-      if (!target.isFinite || target < 0.05 || target > 0.90) {
-        debugPrint('[VolumeRemoteInput] Preset non valido: $target');
+      final requested = preferredVolume ?? initial;
+      if (!requested.isFinite || requested < 0.05 || requested > 0.90) {
+        debugPrint('[VolumeRemoteInput] Preset non valido: $requested');
         return false;
       }
+      final target = requested
+          .clamp(_minimumOperatingVolume, _maximumOperatingVolume)
+          .toDouble();
+
+      // Durante l'attivazione il listener non attribuisce punti.
       if ((initial - target).abs() > _restoreTolerance) {
         final result = await _writeVerified(target);
         if (_disposed || generation != _generation) return false;
         if (result?.confirmed != true) {
-          debugPrint('[VolumeRemoteInput] Preset iniziale non confermato: '
+          debugPrint('[VolumeRemoteInput] Volume iniziale non confermato: '
               'richiesto=$target reale=$initial');
           return false;
         }
         initial = result!.observed;
       }
+
       _preferredVolume = target;
       _lastSample = initial;
-      _guard = VolumeNativeRestoreGuard(target: target);
       _detector.reset(initial);
-      _restoreQueued = false;
+      _ignoreSamplesUntil = DateTime.now().add(_ignoreRestoreEcho);
       _active = true;
+      _delayedRestore?.cancel();
+      debugPrint('[VolumeRemoteInput] ATTIVO: richiesto=$requested; '
+          'livello operativo=$target; volume reale=$initial');
 
-      debugPrint('[VolumeRemoteInput] ATTIVO: volume reale=$initial; '
-          'target restore=$target; restorePerClick=true');
-
-      // Solo diagnostica: GET e STREAM sono deduplicati da _lastSample.
-      if (Platform.isIOS) {
-        _debugPoll?.cancel();
-        _debugPoll = Timer.periodic(
-          const Duration(milliseconds: 150),
-          (_) => unawaited(_pollOnce(generation)),
-        );
-      }
+      _debugPoll?.cancel();
+      _debugPoll = Timer.periodic(
+        const Duration(milliseconds: 150),
+        (_) => unawaited(_pollOnce(generation)),
+      );
       return true;
     } catch (error) {
       debugPrint('[VolumeRemoteInput] Attivazione fallita: $error');
@@ -118,8 +146,6 @@ class VolumeRemoteInput {
   }
 
   Future<VolumeProbeResult?> _writeVerified(double value) async {
-
-    // Il controllo MPVolumeView potrebbe non essere ancora pronto.
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         final result = await PadelVolumeDiagnostic.write(value);
@@ -146,7 +172,7 @@ class VolumeRemoteInput {
     if (!_active || _disposed || _polling || generation != _generation) return;
     _polling = true;
     try {
-      final volume = await PerfectVolumeControl.getVolume();
+      final volume = await PadelVolumeDiagnostic.read();
       if (_active && !_disposed && generation == _generation) {
         _receive(volume, 'GET');
       }
@@ -158,16 +184,15 @@ class VolumeRemoteInput {
   }
 
   void _receive(double volume, String source) {
-    if (!_active || _disposed || !volume.isFinite ||
-        volume < 0 || volume > 1) {
+    if (!_active || _disposed || !volume.isFinite || volume < 0 || volume > 1) {
       return;
     }
 
-    // Un ritorno verso il target causato da una scrittura NON e' un clic.
-    if (_writing && (_guard?.consume(volume) ?? false)) {
-      _lastSample = volume;
-      _detector.reset(volume);
-      debugPrint('[VolumeRemoteInput] $source ritorno ignorato: $volume');
+    // Tutte le notifiche mentre l'app stessa sta scrivendo vengono scartate.
+    // Anche le notifiche asincrone in ritardo dopo la scrittura sono ignorate.
+    if (_writing ||
+        (_ignoreSamplesUntil != null &&
+            DateTime.now().isBefore(_ignoreSamplesUntil!))) {
       return;
     }
 
@@ -177,61 +202,75 @@ class VolumeRemoteInput {
     }
     _lastSample = volume;
 
-    if (!_detector.accept(volume)) {
-      debugPrint('[VolumeRemoteInput] $source filtrato: $volume');
+    // La sonda valida la variazione, ma NON trasformiamo +0.10 in 2 clic:
+    // sul telefono fisico quel salto e' stato osservato come UN evento.
+    // IOS non fornisce press/release hardware affidabili via outputVolume.
+    final volumeSteps = _detector.countSteps(volume);
+    if (volumeSteps == 0) {
+      debugPrint('[VolumeRemoteInput] $source variazione ignorata: $volume');
       return;
     }
-    if (!canAcceptInput()) return;
 
-    debugPrint('[VolumeRemoteInput] $source CLICK: $volume');
-    onImpulse(); // Il debounce 1-4 e' GIA' in BluetoothKeyService.
-    _requestRestore(_generation);
+    if (!canAcceptInput()) {
+      _volumeGestures.reset();
+      debugPrint('[VolumeRemoteInput] $source scartato: schermata non attiva');
+      return;
+    }
+
+    debugPrint('[VolumeRemoteInput] ${DateTime.now().toIso8601String()} '
+        '$source: 1 notifica (salto volume di $volumeSteps passi); '
+        'volume=$volume');
+    _volumeGestures.observe();
+    _scheduleRestore(_generation);
   }
 
-  void _requestRestore(int generation) {
-    if (!_active || _disposed || generation != _generation ||
-        _preferredVolume == null) {
-      return;
-    }
-    if (_writing) {
-      _restoreQueued = true;
-      return;
-    }
-    unawaited(_restore(generation));
+  void _scheduleRestore(int generation) {
+    _delayedRestore?.cancel();
+    _delayedRestore = Timer(_restoreAfterSilence, () {
+      _delayedRestore = null;
+      unawaited(_restore(generation));
+    });
   }
 
   Future<void> _restore(int generation) async {
     if (_writing || !_active || _disposed || generation != _generation) return;
+    final from = _lastSample;
+    final target = _preferredVolume;
+    if (from == null || target == null ||
+        (from - target).abs() <= _restoreTolerance) {
+      return;
+    }
+
     _writing = true;
+    _writingGeneration = generation;
+    bool failed = false;
     try {
-      for (var round = 0; round < 2; round++) {
-        _restoreQueued = false;
-        final from = _lastSample;
-        final target = _preferredVolume;
-        if (from == null || target == null ||
-            (from - target).abs() <= _restoreTolerance) {
-          break;
-        }
+      debugPrint('[VolumeRemoteInput] Ripristino dopo il gesto: $from -> $target');
+      final result = await _writeVerified(target);
+      if (!_active || _disposed || generation != _generation) return;
 
-        _guard?.begin(from);
-        debugPrint('[VolumeRemoteInput] RESET richiesto: $from -> $target');
-        final result = await _writeVerified(target);
-        if (!_active || _disposed || generation != _generation) return;
-
-        if (result?.confirmed != true) {
-          debugPrint('[VolumeRemoteInput] RESET NON CONFERMATO');
-          break; // Non fingere che il volume sia stato bloccato.
-        }
+      if (result?.confirmed == true) {
         _lastSample = result!.observed;
         _detector.reset(result.observed);
-        debugPrint('[VolumeRemoteInput] RESET confermato: ${result.observed}');
-
-        if (!_restoreQueued) break;
+        debugPrint('[VolumeRemoteInput] Ripristino confermato: ${result.observed}');
+      } else {
+        failed = true;
+        debugPrint('[VolumeRemoteInput] Ripristino NON confermato');
       }
     } finally {
-      _guard?.clear();
-      _writing = false;
-      _restoreQueued = false;
+      if (_writingGeneration == generation) {
+        _writing = false;
+        _writingGeneration = null;
+        if (_active && generation == _generation) {
+          _ignoreSamplesUntil = DateTime.now().add(_ignoreRestoreEcho);
+        }
+      }
+    }
+    // Se l'app non riesce a ripristinare il volume, non continua a contare
+    // pressioni da uno stato incerto: si disattiva e notifica la schermata.
+    if (failed && _active && generation == _generation) {
+      deactivate();
+      onUnavailable?.call();
     }
   }
 
@@ -241,15 +280,16 @@ class VolumeRemoteInput {
     _active = false;
     _debugPoll?.cancel();
     _debugPoll = null;
+    _delayedRestore?.cancel();
+    _delayedRestore = null;
     _detector.reset();
-    _guard?.clear();
-    _guard = null;
+    _volumeGestures.reset();
     _lastSample = null;
     _preferredVolume = null;
-    _restoreQueued = false;
+    _ignoreSamplesUntil = null;
     PerfectVolumeControl.hideUI = false;
     if (wasActive) {
-      debugPrint('[VolumeRemoteInput] Disattivato (stream persistente)');
+      debugPrint('[VolumeRemoteInput] Disattivato');
     }
   }
 

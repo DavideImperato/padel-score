@@ -50,6 +50,9 @@ class BluetoothKeyService {
   // Gestione Debounce per 1 Clic vs 2 Clic entro 350ms (Android)
   late final RemoteClickSequence _iosClicks = RemoteClickSequence(
     onSequence: _dispatchIosSequence,
+    // Su iPhone le notifiche volume possono arrivare in ritardo rispetto
+    // alla pressione fisica. Solo il percorso iOS usa questa finestra.
+    gap: const Duration(milliseconds: 650),
   );
 
   Timer? _debounceTimer;
